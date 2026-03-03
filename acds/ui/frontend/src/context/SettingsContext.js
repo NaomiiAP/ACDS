@@ -1,4 +1,4 @@
-import { createContext, useState, useContext } from 'react';
+import { createContext, useState, useContext, createElement } from 'react';
 
 const STORAGE_KEY = 'acds_settings';
 
@@ -34,10 +34,11 @@ export function SettingsProvider({ children }) {
     const setVerboseTs = v => { _setVerboseTs(v); persist('verboseTs', v); };
     const setDemoMode = v => { _setDemoMode(v); persist('demoMode', v); };
 
-    return (
-        <SettingsContext.Provider value={{ autoScroll, hideNoise, verboseTs, demoMode, setAutoScroll, setHideNoise, setVerboseTs, setDemoMode }}>
-            {children}
-        </SettingsContext.Provider>
+    // createElement avoids JSX in a .js file (Rollup rejects JSX in non-.jsx files)
+    return createElement(
+        SettingsContext.Provider,
+        { value: { autoScroll, hideNoise, verboseTs, demoMode, setAutoScroll, setHideNoise, setVerboseTs, setDemoMode } },
+        children
     );
 }
 
