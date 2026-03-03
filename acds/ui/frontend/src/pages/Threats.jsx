@@ -101,24 +101,18 @@ function DetailPanel({ event, onClose }) {
 
 export default function Threats() {
     const [threats, setThreats] = useState([]);
-    const [stats, setStats] = useState(null);
     const [selected, setSelected] = useState(null);
-    const [filter, setFilter] = useState('all');  // all | high | medium | low
+    const [filter, setFilter] = useState('all');
     const [connected, setConnected] = useState(false);
     const wsRef = useRef(null);
 
-    // Fetch summary stats
-    useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const res = await fetch(`${API_BASE}/api/threats/stats`);
-                if (res.ok) setStats(await res.json());
-            } catch { }
-        };
-        fetchStats();
-        const t = setInterval(fetchStats, 5000);
-        return () => clearInterval(t);
-    }, []);
+    // Stats derived live from the threats array — updates instantly on every WebSocket message
+    const stats = useMemo(() => ({
+        total: threats.length,
+        high: threats.filter(t => t.risk_level === 'high').length,
+        medium: threats.filter(t => t.risk_level === 'medium').length,
+        low: threats.filter(t => t.risk_level === 'low').length,
+    }), [threats]);
 
     // WebSocket for live threats
     useEffect(() => {
@@ -178,10 +172,10 @@ export default function Threats() {
             {/* Stats Cards */}
             <div className="grid grid-cols-4 gap-4">
                 {[
-                    { label: 'Total Flows', value: stats?.total ?? threats.length, icon: <Activity className="h-5 w-5" />, color: '#64748b' },
-                    { label: 'HIGH Risk', value: stats?.high ?? 0, icon: <AlertTriangle className="h-5 w-5" />, color: '#ef4444' },
-                    { label: 'MEDIUM Risk', value: stats?.medium ?? 0, icon: <ShieldAlert className="h-5 w-5" />, color: '#f59e0b' },
-                    { label: 'LOW Risk', value: stats?.low ?? 0, icon: <Shield className="h-5 w-5" />, color: '#10b981' },
+                    { label: 'Total Flows', value: stats.total, icon: <Activity className="h-5 w-5" />, color: '#64748b' },
+                    { label: 'HIGH Risk', value: stats.high, icon: <AlertTriangle className="h-5 w-5" />, color: '#ef4444' },
+                    { label: 'MEDIUM Risk', value: stats.medium, icon: <ShieldAlert className="h-5 w-5" />, color: '#f59e0b' },
+                    { label: 'LOW Risk', value: stats.low, icon: <Shield className="h-5 w-5" />, color: '#10b981' },
                 ].map(c => (
                     <div key={c.label} className="rounded-2xl p-5 border" style={{ background: CARD_BG, borderColor: CARD_BORDER }}>
                         <div className="flex items-center justify-between mb-3">
