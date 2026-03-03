@@ -90,7 +90,7 @@ export function useTelemetry(maxEvents = 10000) {
 
                     setStatsHistory(prev => {
                         const copy = [...prev, { time: new Date().toLocaleTimeString(), eps: data.events_per_sec }];
-                        return copy.slice(-30); // Keep last 30 data points exactly like Dashboard did
+                        return copy.slice(-1800); // Keep up to 1800 points (~1 hour at 2s intervals) for "All" view
                     });
                 }
             } catch (err) {

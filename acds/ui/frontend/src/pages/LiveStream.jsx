@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect, useContext } from 'react';
 import { TelemetryContext } from '../context/TelemetryContext';
+import { useSettings } from '../context/SettingsContext';
 import { FixedSizeList as List } from 'react-window';
-import { Play, Pause, Trash2, Download, Search, AlertCircle, X, ChevronDown } from 'lucide-react';
+import { Play, Pause, Trash2, Download, Search, AlertCircle, X } from 'lucide-react';
 import { format } from 'date-fns';
 
 function Modal({ event, onClose }) {
@@ -36,10 +37,13 @@ function Modal({ event, onClose }) {
 export default function LiveStream() {
     const contextProps = useContext(TelemetryContext) || {};
     const { events = [], isPaused, setIsPaused, clearBuffer } = contextProps;
+    // Read from global settings context
+    const { autoScroll, setAutoScroll, hideNoise, verboseTs } = useSettings();
     const [filterText, setFilterText] = useState("");
     const [protocolFilter, setProtocolFilter] = useState("ALL");
-    const [autoScroll, setAutoScroll] = useState(true);
     const [selectedEvent, setSelectedEvent] = useState(null);
+
+    const NOISY = ['init', 'bash', 'systemd', 'sh', 'kworker', 'rcu_sched'];
 
     const listRef = useRef(null);
     const containerRef = useRef(null);
@@ -58,6 +62,8 @@ export default function LiveStream() {
 
     const filteredEvents = useMemo(() => {
         return events.filter(e => {
+            // Apply hide noisy processes filter from settings
+            if (hideNoise && NOISY.includes((e.process_name || '').toLowerCase())) return false;
             if (protocolFilter !== "ALL" && e.protocol !== protocolFilter) return false;
             if (filterText) {
                 const txt = filterText.toLowerCase();
@@ -72,7 +78,7 @@ export default function LiveStream() {
             }
             return true;
         });
-    }, [events, filterText, protocolFilter]);
+    }, [events, filterText, protocolFilter, hideNoise, NOISY]);
 
     // Hook to handle auto-scrolling
     useEffect(() => {
@@ -108,7 +114,7 @@ export default function LiveStream() {
                     className={`flex items-center px-4 py-2 border-b border-slate-800/50 hover:bg-slate-700/30 cursor-pointer font-mono text-sm transition ${index % 2 === 0 ? 'bg-slate-800/20' : ''} h-full`}
                     onClick={() => setSelectedEvent(e)}
                 >
-                    <div className="w-1/12 text-slate-400">{format(ts, 'HH:mm:ss.SSS')}</div>
+                    <div className="w-1/12 text-slate-400">{verboseTs ? new Date((e.timestamp || 0) * 1000).toISOString() : format(ts, 'HH:mm:ss.SSS')}</div>
                     <div className="w-2/12 text-slate-300 truncate" title={e.host_id}>{e.host_id}</div>
                     <div className="w-1/12 text-emerald-300">{e.pid}</div>
                     <div className="w-2/12 font-bold text-slate-200 truncate">{e.process_name}</div>
