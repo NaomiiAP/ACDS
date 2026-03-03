@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import LiveStream from './pages/LiveStream';
 import Hosts from './pages/Hosts';
 import SettingsPage from './pages/Settings';
+import Threats from './pages/Threats';
 import { useTelemetry } from './hooks/useTelemetry';
 import { TelemetryContext } from './context/TelemetryContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -13,6 +14,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Overview' },
   { to: '/live', label: 'Live Stream' },
   { to: '/hosts', label: 'Hosts' },
+  { to: '/threats', label: 'Threats' },
   { to: '/settings', label: 'Settings' },
 ];
 
@@ -210,6 +212,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/live" element={<LiveStream />} />
             <Route path="/hosts" element={<Hosts />} />
+            <Route path="/threats" element={<Threats />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </AppLayout>
