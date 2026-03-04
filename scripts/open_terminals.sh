@@ -5,8 +5,43 @@
 
 WT="wt.exe"
 PROJECT_DIR="/mnt/c/Users/PRANAV M K/MiniProject"
+KAFKA_DIR="${PROJECT_DIR}/acds/telemetry"
 PASSWORD="Pmk190705*"
 
+# ── Step 1: Restart Kafka + Zookeeper cleanly ─────────────────────────────────
+echo "============================================="
+echo "  ACDS: Restarting Kafka stack (clean)..."
+echo "============================================="
+
+cd "${KAFKA_DIR}" || { echo "ERROR: Cannot find telemetry dir at ${KAFKA_DIR}"; exit 1; }
+
+echo "[1/3] Stopping existing containers..."
+docker compose down
+
+echo "[2/3] Starting Kafka, Zookeeper, Kafka-UI..."
+docker compose up -d
+
+echo "[3/3] Waiting for services to become healthy..."
+sleep 15
+
+echo ""
+echo "--- Docker Compose Status ---"
+docker compose ps
+echo "-----------------------------"
+echo ""
+
+# Verify all required services are running
+RUNNING=$(docker compose ps --services --filter "status=running" 2>/dev/null | wc -l)
+if [ "${RUNNING}" -lt 3 ]; then
+    echo "⚠️  WARNING: Not all Kafka services appear to be running."
+    echo "    Check output above. You may need to restart Docker Desktop."
+    echo "    Press Enter to continue anyway, or Ctrl+C to abort."
+    read -r
+else
+    echo "✅ All Kafka services are running. Launching ACDS terminals..."
+fi
+
+echo ""
 echo "Launching ACDS full stack in Windows Terminal..."
 
 "$WT" \
