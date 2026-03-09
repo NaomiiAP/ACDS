@@ -1,0 +1,11 @@
+# ACDS Telemetry UI — Backend API Bridge
+# FastAPI + Kafka consumer + WebSocket bridge
+
+fastapi>=0.103.1
+uvicorn[standard]>=0.23.2
+aiokafka>=0.8.1
+websockets>=11.0.3
+pydantic>=2.3.0
+
+# CORS + JSON support (included via FastAPI but explicit for clarity)
+python-multipart>=0.0.6
