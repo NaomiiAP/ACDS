@@ -1,0 +1,12 @@
+# ACDS Telemetry Agent — Python Dependencies
+# Requires Linux with kernel >= 5.8 (eBPF support)
+
+# eBPF instrumentation (install via apt, not pip)
+# sudo apt install bpfcc-tools python3-bpfcc
+bcc
+
+# Kafka producer
+confluent-kafka>=2.3.0
+
+# JSON schema validation
+jsonschema>=4.0.0
