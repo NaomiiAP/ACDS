@@ -1,427 +1,562 @@
-# ACDS — Adaptive Cyber Defence System
+# ACDS — Adaptive Cyber Detection System
 
-> **Telemetry Layer** — Real-time network and process monitoring using eBPF, Apache Kafka, and a React dashboard.
-
-[![Branch](https://img.shields.io/badge/branch-pranavmk-10b981?style=flat-square)](https://github.com/praptirn/ACDS/tree/pranavmk)
-[![Layer](https://img.shields.io/badge/layer-4%20Visualization-14b8a6?style=flat-square)](#architecture)
-[![Status](https://img.shields.io/badge/status-active-22c55e?style=flat-square)](#)
+> **A real-time network telemetry, deep-packet-inspection, and threat-detection platform running on Linux (WSL2) with a React dashboard.**
 
 ---
 
 ## Table of Contents
 
-- [What Is ACDS?](#what-is-acds)
-- [Architecture](#architecture)
-- [Repository Structure](#repository-structure)
-- [Components](#components)
-  - [Telemetry Agent (eBPF)](#1-telemetry-agent-ebpf)
-  - [Kafka Transport](#2-kafka-transport)
-  - [API Bridge (FastAPI)](#3-api-bridge-fastapi)
-  - [React Dashboard (UI)](#4-react-dashboard-ui)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Quick Start](#quick-start)
-- [UI Pages](#ui-pages)
-- [API Reference](#api-reference)
-- [Event Schema](#event-schema)
-- [Traffic Generation](#traffic-generation)
-- [Multi-Host Setup](#multi-host-setup)
-- [Technology Stack](#technology-stack)
+1. [Project Overview](#1-project-overview)
+2. [Architecture & Data Flow](#2-architecture--data-flow)
+3. [Prerequisites](#3-prerequisites)
+4. [Repository Structure](#4-repository-structure)
+5. [Installation](#5-installation)
+   - [5.1 System Packages (WSL2/Ubuntu)](#51-system-packages-wsl2--ubuntu)
+   - [5.2 Docker Desktop (Windows)](#52-docker-desktop-windows)
+   - [5.3 Python Virtual Environments](#53-python-virtual-environments)
+   - [5.4 Node.js & Frontend Dependencies](#54-nodejs--frontend-dependencies)
+6. [One-Time Configuration](#6-one-time-configuration)
+7. [Running the Full Stack](#7-running-the-full-stack)
+   - [7.1 Using `open_terminals.sh` (Recommended)](#71-using-open_terminalssh-recommended)
+   - [7.2 Manual Step-by-Step](#72-manual-step-by-step)
+8. [Generating Test Traffic](#8-generating-test-traffic)
+9. [Accessing the UI & Services](#9-accessing-the-ui--services)
+10. [Stopping the Stack](#10-stopping-the-stack)
+11. [Troubleshooting](#11-troubleshooting)
 
 ---
 
-## What Is ACDS?
+## 1. Project Overview
 
-ACDS (**Adaptive Cyber Defence System**) is a distributed network telemetry and monitoring platform. It captures live kernel-level syscall events from any Linux host using **eBPF**, streams them through **Apache Kafka**, and visualizes them in a real-time **React dashboard**.
+ACDS is a five-layer security observability pipeline:
 
-This branch (`pranavmk`) contains the complete **Layer 4 — Visualization** implementation, including the eBPF telemetry agent, Kafka bridge API, and full React UI.
+| Layer | Service | Role |
+|-------|---------|------|
+| **L4** | **Telemetry Agent** (`acds/telemetry/agent/`) | eBPF kernel probes capture every `connect` and `execve` syscall and publish raw events to Kafka (`telemetry.raw`) |
+| **L5** | **DPI Service** (`dpi_service/`) | Scapy packet capture builds bidirectional flows and extracts statistical features, publishing to Kafka (`dpi.features`) |
+| **L6** | **Correlation Service** (`acds/correlation_service/`) | Consumes both Kafka topics, correlates process identity with network flows, scores risk, and publishes fully attributed events (`enriched.flows`) |
+| **L7** | **Backend API** (`acds/ui/backend/`) | FastAPI server bridges Kafka to the browser via REST endpoints and WebSockets (`/ws/telemetry`, `/ws/threats`) |
+| **UI** | **React Frontend** (`acds/ui/frontend/`) | Vite + React dashboard visualising live telemetry events, DPI flows, and threat scores in real time |
 
-> **Scope Note:** This layer handles collection, transport, aggregation, and visualization. ML-based threat scoring, DPI, and anomaly classification belong to subsequent layers (DPI Phase).
+Kafka (with Zookeeper) runs inside Docker and connects all layers together.
 
 ---
 
-## Architecture
+## 2. Architecture & Data Flow
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Linux Host                           │
-│                                                             │
-│  ┌──────────────┐     ┌──────────────────────────────────┐  │
-│  │  eBPF Agent  │────▶│   Kafka Topic: telemetry.raw     │  │
-│  │  (BCC/Python)│     │   (Schema v1.0)                  │  │
-│  └──────────────┘     └──────────────┬───────────────────┘  │
-│                                      │                       │
-│                       ┌──────────────▼───────────────────┐  │
-│                       │   FastAPI Bridge  :8000           │  │
-│                       │   REST + WebSocket                │  │
-│                       └──────────────┬───────────────────┘  │
-│                                      │                       │
-│                       ┌──────────────▼───────────────────┐  │
-│                       │   React Dashboard  :5173          │  │
-│                       │   Vite + Recharts + Tailwind      │  │
-│                       └──────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│                    Linux Kernel                     │
+│   syscall: connect / execve                         │
+│          │  (eBPF kprobe)                           │
+│          ▼                                          │
+│   Telemetry Agent ──────────► Kafka: telemetry.raw  │
+│                                        │            │
+│   Network Interface                    │            │
+│          │  (Scapy capture)            │            │
+│          ▼                             │            │
+│   DPI Service ──────────────► Kafka: dpi.features   │
+│                                        │            │
+│                               Correlation Service   │
+│                           (correlate + risk score)  │
+│                                        │            │
+│                               Kafka: enriched.flows │
+│                                        │            │
+│                               FastAPI Backend API   │
+│                          (REST + WebSocket bridge)  │
+│                                        │            │
+│                               React UI Dashboard    │
+└─────────────────────────────────────────────────────┘
 ```
 
-Multiple hosts can publish to the **same Kafka topic** — the dashboard automatically segments telemetry by `host_id` on the Hosts page.
+**Kafka Topics:**
+
+| Topic | Producer | Consumer |
+|-------|----------|----------|
+| `telemetry.raw` | Telemetry Agent | Correlation Service, Backend API |
+| `dpi.features` | DPI Service | Correlation Service |
+| `enriched.flows` | Correlation Service | Backend API |
 
 ---
 
-## Repository Structure
+## 3. Prerequisites
 
-```
-ACDS/
-├── acds/
-│   ├── telemetry/                  # eBPF Telemetry Agent
-│   │   ├── agent/
-│   │   │   └── agent.py            # Main eBPF agent (BCC + Kafka producer)
-│   │   └── requirements.txt        # Python deps for agent
-│   │
-│   └── ui/
-│       ├── backend/                # FastAPI API Bridge
-│       │   ├── server.py           # Main FastAPI app (REST + WebSocket)
-│       │   └── requirements.txt    # Python deps for backend
-│       │
-│       └── frontend/               # React Dashboard
-│           ├── src/
-│           │   ├── pages/
-│           │   │   ├── Dashboard.jsx     # Overview page
-│           │   │   ├── LiveStream.jsx    # Real-time event table
-│           │   │   ├── Hosts.jsx         # Multi-host management
-│           │   │   └── Settings.jsx      # UI settings & diagnostics
-│           │   ├── hooks/
-│           │   │   └── useTelemetry.js   # WebSocket + stats polling hook
-│           │   ├── context/
-│           │   │   ├── TelemetryContext.js  # Global event state
-│           │   │   └── SettingsContext.js   # Persistent UI settings
-│           │   └── App.jsx               # Router + layout
-│           └── package.json
-│
-├── scripts/
-│   ├── open_terminals.sh           # Launch full stack in Windows Terminal tabs
-│   └── generate_traffic.sh        # Continuous network traffic generator
-│
-└── README.md
-```
-
----
-
-## Components
-
-### 1. Telemetry Agent (eBPF)
-
-**Location:** `acds/telemetry/agent/agent.py`
-
-Uses **BCC (BPF Compiler Collection)** to attach eBPF probes to the Linux kernel and capture:
-- Network connection events (`tcp_connect`, `udp_send`)
-- Per-process syscall activity
-- Container metadata (via cgroup/namespace inspection)
-
-Each event is serialized as a JSON message and published to Kafka under the `telemetry.raw` topic.
-
-**Event fields captured:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `host_id` | string | Hostname of the capturing machine |
-| `pid` | int | Process ID |
-| `process_name` | string | Name of the system process |
-| `syscall` | string | Kernel syscall intercepted |
-| `protocol` | string | `TCP` or `UDP` |
-| `src_ip` / `src_port` | string/int | Source address |
-| `dst_ip` / `dst_port` | string/int | Destination address |
-| `timestamp` | float | Unix timestamp (seconds) |
-| `success` | bool | Whether syscall returned success |
-| `container_id` | string | Container identifier (empty if bare-metal) |
-
----
-
-### 2. Kafka Transport
-
-**Topic:** `telemetry.raw`  
-**Schema Version:** `v1.0`
-
-Kafka acts as the durable message bus between the eBPF agent and the API bridge. Any number of hosts can publish to the same topic simultaneously.
-
-**Consumer config used by the bridge:**
-- `auto_offset_reset = earliest` — ensures historical events are loaded on startup
-- `group_id = telemetry-ui-consumer`
-
----
-
-### 3. API Bridge (FastAPI)
-
-**Location:** `acds/ui/backend/server.py`  
-**Port:** `8000`
-
-Consumes the Kafka topic and exposes:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/status` | GET | WebSocket health, Kafka status, total event count |
-| `/api/stats` | GET | Rolling statistics (events/sec, TCP/UDP counts, top processes) |
-| `/api/events` | GET | Last N raw events (JSON) |
-| `/ws/telemetry` | WebSocket | Real-time event stream to the browser |
-
----
-
-### 4. React Dashboard (UI)
-
-**Location:** `acds/ui/frontend/`  
-**Port:** `5173` (Vite dev server)
-
-#### Pages
-
-| Page | Route | Description |
-|------|-------|-------------|
-| **Overview** | `/` | Event rate chart, protocol donut, stat cards, process bar chart |
-| **Live Stream** | `/live` | Virtualized real-time event table with search, filter, export |
-| **Hosts** | `/hosts` | Multi-host table with status, click-through host detail view |
-| **Settings** | `/settings` | Backend config, connection health, UI behaviour toggles, export |
-
----
-
-## Getting Started
-
-### Prerequisites
-
+### Windows Host
 | Requirement | Version | Notes |
 |-------------|---------|-------|
-| Linux (WSL2 or native) | Ubuntu 20.04+ | eBPF agent requires kernel ≥ 5.8 |
-| Python | 3.8+ | For agent and backend |
-| Node.js | 18+ | For the React frontend |
-| Apache Kafka | 2.8+ | Must be running on `localhost:9092` |
-| BCC (BPF Tools) | Latest | `sudo apt install bpfcc-tools python3-bpfcc` |
-| Windows Terminal | Any | For the `open_terminals.sh` launcher (Windows only) |
+| **Windows 10/11** | Build 19041+ | WSL2 support |
+| **WSL2** | — | Ubuntu 22.04 LTS recommended |
+| **Windows Terminal** | Latest | Required by `open_terminals.sh` to launch tabs |
+| **Docker Desktop** | 4.x+ | Must have WSL2 backend enabled |
+
+### Inside WSL2 (Ubuntu)
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| **Linux Kernel** | ≥ 5.8 | Required for eBPF / BCC |
+| **Python 3** | ≥ 3.10 | `python3`, `pip3` |
+| **Node.js** | ≥ 18 LTS | For the React frontend |
+| **npm** | ≥ 9 | Bundled with Node.js |
+| **bpfcc-tools** | Latest | eBPF tooling (apt package) |
+| **python3-bpfcc** | Latest | Python BCC bindings (apt package) |
+| **curl** | Any | Used by `generate_traffic.sh` |
+| **iputils-ping** | Any | Used by `generate_traffic.sh` |
+| **dnsutils** | Any | `nslookup` in `generate_traffic.sh` |
 
 ---
 
-### Quick Start
+## 4. Repository Structure
 
-#### Option 1 — Automated (Windows with WSL)
+```
+MiniProject/
+├── scripts/
+│   ├── open_terminals.sh      # ← Main launcher: starts Docker + all 6 services in Windows Terminal tabs
+│   └── generate_traffic.sh   # ← Continuous traffic generator for testing
+│
+├── acds/
+│   ├── telemetry/
+│   │   ├── agent/             # eBPF Telemetry Agent (Python + BCC)
+│   │   │   ├── agent.py       # Entry point (requires root)
+│   │   │   ├── kafka_producer.py
+│   │   │   ├── container_mapper.py
+│   │   │   └── config.py
+│   │   ├── ebpf/
+│   │   │   └── telemetry.c    # eBPF C program (compiled at runtime by BCC)
+│   │   ├── docker-compose.yml # Zookeeper + Kafka + Kafka-UI
+│   │   └── requirements.txt
+│   │
+│   ├── correlation_service/   # Layer 6: Correlator + Risk Scorer
+│   │   ├── correlation_main.py
+│   │   ├── flow_correlator.py
+│   │   ├── risk_scorer.py
+│   │   ├── state_store.py
+│   │   └── requirements.txt
+│   │
+│   └── ui/
+│       ├── backend/           # FastAPI WebSocket bridge
+│       │   ├── server.py
+│       │   └── requirements.txt
+│       └── frontend/          # React + Vite dashboard
+│           ├── src/
+│           ├── package.json
+│           └── vite.config.js
+│
+└── dpi_service/               # Layer 5: Deep Packet Inspection
+    ├── dpi_main.py
+    ├── packet_capture.py
+    ├── flow_manager.py
+    ├── feature_extractor.py
+    ├── kafka_publisher.py
+    └── requirements.txt
+```
 
-Open a WSL terminal in the project root and run:
+---
+
+## 5. Installation
+
+All installation commands below are run **inside a WSL2 terminal** unless stated otherwise.
+
+### 5.1 System Packages (WSL2 / Ubuntu)
 
 ```bash
-chmod +x scripts/open_terminals.sh scripts/generate_traffic.sh
+sudo apt update && sudo apt upgrade -y
+
+# Core system tools
+sudo apt install -y python3 python3-pip python3-venv \
+    curl iputils-ping dnsutils git
+
+# eBPF / BCC tooling (required for the Telemetry Agent)
+sudo apt install -y bpfcc-tools python3-bpfcc linux-headers-$(uname -r)
+```
+
+> **Note:** `bpfcc-tools` and `python3-bpfcc` are installed via `apt`, **not** `pip`. The `requirements.txt` for the telemetry agent lists `bcc` as a reminder only; the apt packages take precedence.
+
+---
+
+### 5.2 Docker Desktop (Windows)
+
+1. Download and install **Docker Desktop** from [https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop).
+2. In Docker Desktop → **Settings → General**, enable **"Use the WSL 2 based engine"**.
+3. Under **Settings → Resources → WSL Integration**, toggle on your Ubuntu distro.
+4. Restart Docker Desktop and confirm it is running (system tray icon).
+
+Verify from WSL2:
+```bash
+docker --version
+docker compose version
+```
+
+---
+
+### 5.3 Python Virtual Environments
+
+Create an isolated virtual environment for each Python service to avoid package conflicts.
+
+#### Telemetry Agent
+```bash
+cd ~/path/to/MiniProject/acds/telemetry
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+# bcc is provided by the system apt package, not pip
+pip install confluent-kafka>=2.3.0 jsonschema>=4.0.0
+
+deactivate
+```
+
+> **Important:** The `bcc` Python bindings come from the system package `python3-bpfcc`. You must either activate the venv with `--system-site-packages` or simply run `agent.py` with the system Python3 (outside a venv), since system site-packages include BCC:
+
+```bash
+# Easiest approach — use system Python3 for the agent:
+pip3 install --user confluent-kafka jsonschema
+```
+
+#### DPI Service
+```bash
+cd ~/path/to/MiniProject/dpi_service
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+deactivate
+```
+
+#### Correlation Service
+```bash
+cd ~/path/to/MiniProject/acds/correlation_service
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+deactivate
+```
+
+#### Backend API
+```bash
+cd ~/path/to/MiniProject/acds/ui/backend
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+deactivate
+```
+
+---
+
+### 5.4 Node.js & Frontend Dependencies
+
+#### Install Node.js (via nvm — recommended)
+```bash
+# Install nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+source ~/.bashrc
+
+# Install Node.js LTS
+nvm install --lts
+nvm use --lts
+node --version   # should show v18.x or higher
+```
+
+#### Install Frontend Node Modules
+```bash
+cd ~/path/to/MiniProject/acds/ui/frontend
+npm install
+```
+
+---
+
+## 6. One-Time Configuration
+
+### Update the Project Path in `open_terminals.sh`
+
+Open `scripts/open_terminals.sh` in a text editor and update the `PROJECT_DIR` variable to match where you cloned the repository inside WSL2:
+
+```bash
+# Line 7 in open_terminals.sh — change this to your path:
+PROJECT_DIR="/mnt/c/Users/<YOUR_USERNAME>/MiniProject"
+```
+
+### Update the sudo Password
+
+On **line 9** of `open_terminals.sh`, replace the placeholder with your WSL2 user password:
+
+```bash
+PASSWORD="your_wsl_sudo_password"
+```
+
+> ⚠️ **Security Note:** This password is used to run `agent.py` and `dpi_main.py` with `sudo` (required for eBPF kernel probes and packet capture). Keep this file private and do not commit it to a public repository. Consider using a `sudoers` NOPASSWD rule instead.
+
+### Recommended: NOPASSWD for Python (Optional but Safer)
+
+Instead of hard-coding your password, add a sudoers rule:
+
+```bash
+sudo visudo
+```
+
+Add at the bottom (replace `yourusername`):
+```
+yourusername ALL=(ALL) NOPASSWD: /usr/bin/python3
+```
+
+Then remove the `echo '${PASSWORD}' | sudo -S` prefix from the relevant lines in `open_terminals.sh`.
+
+---
+
+## 7. Running the Full Stack
+
+### 7.1 Using `open_terminals.sh` (Recommended)
+
+This script performs the following automatically:
+
+1. **Stops** any existing Kafka/Zookeeper Docker containers
+2. **Starts** fresh containers (`docker compose up -d`) and waits 15 seconds for them to become healthy
+3. **Opens 6 Windows Terminal tabs**, one for each service:
+
+| Tab | Service | Command |
+|-----|---------|---------|
+| 🧠 Telemetry Agent | eBPF kernel probe → Kafka | `sudo python3 agent.py` |
+| 🌊 DPI Service | Packet capture → Kafka | `sudo python3 dpi_main.py` |
+| 🔗 Correlation Service | Kafka correlator → enriched events | `python3 correlation_main.py` |
+| ⚡ Python API Backend | FastAPI on port 8000 | `uvicorn server:app --host 0.0.0.0 --port 8000` |
+| 🌐 React UI Frontend | Vite dev server on port 5173 | `npm run dev -- --host 0.0.0.0 --port 5173` |
+| 📨 Kafka Monitor | Console consumer for live messages | `kafka-console-consumer ...` |
+| 🔁 Traffic Generator | Continuous synthetic traffic | `./scripts/generate_traffic.sh` |
+
+**Run from inside WSL2:**
+
+```bash
+cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject
+chmod +x scripts/open_terminals.sh
 ./scripts/open_terminals.sh
 ```
 
-This opens **5 Windows Terminal tabs** automatically:
-1. 🧠 **Telemetry Agent** — eBPF kernel probe (`sudo python3 agent.py`)
-2. 📨 **Kafka CLI** — live topic consumer for debugging
-3. ⚡ **FastAPI Backend** — REST + WebSocket bridge on port `8000`
-4. 🌐 **React Frontend** — Vite dev server on port `5173`
-5. 🔁 **Traffic Generator** — continuous `curl`/`ping`/`nslookup` loop
+---
 
-Then open **http://localhost:5173** in your browser.
+### 7.2 Manual Step-by-Step
+
+If you prefer to start each component yourself (e.g., on a headless server or without Windows Terminal), follow these steps **in order**, each in a separate terminal.
+
+#### Step 1 — Start Kafka Stack (Docker)
+
+```bash
+cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/telemetry
+docker compose down          # stop any old containers
+docker compose up -d         # start Zookeeper + Kafka + Kafka-UI
+sleep 15                     # wait for Kafka to be ready
+docker compose ps            # verify all 3 services are "Up"
+```
+
+#### Step 2 — Start the Telemetry Agent
+
+```bash
+# Must run as root for eBPF kprobe access
+sudo python3 /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/telemetry/agent/agent.py
+```
+
+Expected output:
+```
+[INFO] Starting ACDS Telemetry Agent (Python+BCC)...
+[INFO] Compiling eBPF program...
+[INFO] Successfully attached kernel kprobes.
+[INFO] Agent active and polling perf buffers.
+```
+
+#### Step 3 — Start the DPI Service
+
+```bash
+# Must run as root for raw packet capture (Scapy)
+sudo python3 /mnt/c/Users/<YOUR_USERNAME>/MiniProject/dpi_service/dpi_main.py
+```
+
+Expected output:
+```
+============================================================
+  ACDS DPI SERVICE  —  Layer 5
+  Capture: TCP + UDP | Bidirectional flows | Kafka→dpi.features
+============================================================
+```
+
+#### Step 4 — Start the Correlation Service
+
+```bash
+cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/correlation_service
+python3 correlation_main.py
+```
+
+Expected output:
+```
+=================================================================
+  ACDS CORRELATION SERVICE  —  Layer 6
+  Consuming: telemetry.raw, dpi.features
+  Publishing: enriched.flows
+=================================================================
+```
+
+#### Step 5 — Start the Backend API
+
+```bash
+cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/ui/backend
+python3 -m uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+Expected output:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+#### Step 6 — Start the React Frontend
+
+```bash
+cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/ui/frontend
+npm run dev -- --host 0.0.0.0 --port 5173
+```
+
+Expected output:
+```
+  VITE v7.x.x  ready in xxx ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://0.0.0.0:5173/
+```
 
 ---
 
-#### Option 2 — Manual Step-by-Step
+## 8. Generating Test Traffic
 
-**Step 1 — Start Kafka** (if not already running):
+The `generate_traffic.sh` script runs in an infinite loop, generating synthetic network events so the pipeline has data to process even in a quiet environment.
+
 ```bash
-# Start Zookeeper
-bin/zookeeper-server-start.sh config/zookeeper.properties &
-
-# Start Kafka broker
-bin/kafka-server-start.sh config/server.properties &
-```
-
-**Step 2 — Install agent dependencies:**
-```bash
-pip3 install -r acds/telemetry/requirements.txt
-```
-
-**Step 3 — Start the eBPF Agent** (requires root):
-```bash
-cd acds/telemetry/agent
-sudo python3 agent.py
-```
-
-**Step 4 — Install and start the API Bridge:**
-```bash
-pip3 install -r acds/ui/backend/requirements.txt
-cd acds/ui/backend
-uvicorn server:app --host 0.0.0.0 --port 8000
-```
-
-**Step 5 — Install and start the React frontend:**
-```bash
-cd acds/ui/frontend
-npm install
-npm run dev
-```
-
-**Step 6 — Generate traffic** (optional, for demo):
-```bash
-# Open one or more WSL tabs and run:
+cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject
+chmod +x scripts/generate_traffic.sh
 ./scripts/generate_traffic.sh
 ```
 
----
+What it generates every ~1 second:
 
-## UI Pages
+| Type | Tool | Target |
+|------|------|--------|
+| **TCP/HTTPS** | `curl` | google.com, cloudflare.com |
+| **ICMP (ping)** | `ping -c 1` | 8.8.8.8, 1.1.1.1 |
+| **DNS** | `nslookup` | example.com, github.com |
 
-### Overview (Dashboard)
-- **Event Flow Rate** — Area chart with selectable time windows: `10s`, `30s`, `1m`, `All`
-- **Protocol Distribution** — Live TCP vs UDP donut chart
-- **Stat Cards** — Events/sec, Unique Hosts, Active Containers, TCP Connections
-- **Active Processes** — Bar chart of top processes by event count
-- **Top Processes Table** — Sortable table with activity share percentage bars
+A `.` is printed to the console every iteration to confirm it is running. Press **Ctrl+C** to stop.
 
-### Live Stream
-- Virtualized table rendering up to 10,000 events with zero lag
-- Search/filter by process name, IP, or host
-- Protocol filter (All / TCP / UDP)
-- Pause/Resume stream
-- Export to CSV
-- Click any row to see full event JSON
-
-### Hosts
-- Automatic multi-host detection (any machine running the agent appears here)
-- Status indicator: 🟢 Active (<5s), 🟡 Idle (<30s), 🔴 Offline (>30s)
-- Click any host for the **Host Detail View**:
-  - Per-host event rate chart
-  - Per-host TCP/UDP split
-  - Top destination IPs
-  - Top processes
-  - Host-filtered live stream (last 50 events)
-
-### Settings
-- **Connection Health** — Live WebSocket, Kafka, and Agent heartbeat status
-- **Backend Configuration** — Endpoint URLs, Kafka topic, schema version (read-only)
-- **UI Behaviour Toggles** (persistent in `localStorage`):
-  - Auto-scroll in Live Stream
-  - Hide Noisy Processes (init, bash, systemd, sh)
-  - Verbose Kernel Timestamps (ISO 8601 format)
-- **Demo Mode** toggle
-- **Export** — Download last 1,000 / 100 events or stats snapshot as JSON
+> This script is automatically launched in the **🔁 Traffic Generator** tab when using `open_terminals.sh`.
 
 ---
 
-## API Reference
+## 9. Accessing the UI & Services
 
-### `GET /api/status`
-```json
-{
-  "kafka_connected": true,
-  "total_events": 6872,
-  "last_event_ts": 1709500000.0,
-  "uptime_seconds": 3620
-}
-```
+Once all services are running, open these URLs in your **Windows browser**:
 
-### `GET /api/stats?window=10s`
-```json
-{
-  "events_per_sec": 28.4,
-  "tcp_count": 110,
-  "udp_count": 736,
-  "unique_hosts": 1,
-  "unique_containers": 1,
-  "top_processes": [["curl", 736], ["bash", 226], ["ping", 92]]
-}
-```
+| Service | URL | Description |
+|---------|-----|-------------|
+| **React Dashboard** | http://localhost:5173 | Main UI — live telemetry, DPI flows, threat scores |
+| **FastAPI Docs** | http://localhost:8000/docs | Swagger UI for the REST API |
+| **API Status** | http://localhost:8000/api/status | Kafka connection health |
+| **Live Events** | http://localhost:8000/api/events | Last 100 raw telemetry events |
+| **Threats** | http://localhost:8000/api/threats | Enriched + risk-scored flow events |
+| **Kafka UI** | http://localhost:8080 | Browse Kafka topics and messages |
 
-### `GET /api/events?limit=100`
-Returns an array of the last N raw event objects.
+### WebSocket Endpoints
 
-### `WS /ws/telemetry`
-Streams JSON messages in the form:
-```json
-{ "type": "event", "data": { ...event fields... } }
-```
+| WebSocket | Description |
+|-----------|-------------|
+| `ws://localhost:8000/ws/telemetry` | Real-time `telemetry.raw` stream |
+| `ws://localhost:8000/ws/threats` | Real-time `enriched.flows` stream |
 
 ---
 
-## Event Schema
+## 10. Stopping the Stack
 
-**Schema Version:** `v1.0` — frozen for this sprint.
+### Stop All Services
 
-```json
-{
-  "host_id": "MK-LAPTOP",
-  "pid": 1234,
-  "process_name": "curl",
-  "syscall": "tcp_connect",
-  "protocol": "TCP",
-  "src_ip": "192.168.1.10",
-  "src_port": 54321,
-  "dst_ip": "142.250.180.46",
-  "dst_port": 443,
-  "timestamp": 1709500000.123,
-  "success": true,
-  "container_id": "",
-  "return_code": 0
-}
-```
-
-> **Note:** Do not modify this schema without updating the `auto_offset_reset` config and re-validating the API bridge parsing logic.
-
----
-
-## Traffic Generation
-
-For demos and testing, use the included script:
+Press **Ctrl+C** in each terminal tab to stop its service, then:
 
 ```bash
-./scripts/generate_traffic.sh
+# Stop and remove Kafka containers
+cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/telemetry
+docker compose down
 ```
 
-This loops indefinitely running:
-- `curl` requests to popular domains (generates TCP/443 traffic)
-- `ping` commands (generates ICMP)
-- `nslookup` queries (generates UDP/53 DNS traffic)
+### Stop Docker Completely (Optional)
 
-Spawn multiple instances simultaneously to increase event rate:
-```bash
-# In 3 separate WSL tabs:
-./scripts/generate_traffic.sh &
-./scripts/generate_traffic.sh &
-./scripts/generate_traffic.sh
-```
+Right-click the Docker Desktop icon in the Windows system tray → **Quit Docker Desktop**.
 
 ---
 
-## Multi-Host Setup
+## 11. Troubleshooting
 
-To monitor multiple machines from a single dashboard:
+### eBPF / BCC Errors
 
-1. Ensure your **Kafka broker is network-accessible** (edit `listeners` in `server.properties`)
-2. On each additional host, set the Kafka broker address and run the agent:
-   ```bash
-   export KAFKA_BOOTSTRAP_SERVERS="<main-machine-ip>:9092"
-   sudo python3 acds/telemetry/agent/agent.py
-   ```
-3. Each host automatically appears as a new row on the **Hosts** page with its own `host_id` (machine hostname)
+| Error | Solution |
+|-------|----------|
+| `FATAL: bcc module not found` | Run `sudo apt install bpfcc-tools python3-bpfcc` |
+| `Failed to attach kprobes` | Ensure you are running `agent.py` with `sudo` |
+| `Cannot find eBPF C program` | Verify `acds/telemetry/ebpf/telemetry.c` exists |
+| BPF compile errors | Ensure kernel headers are installed: `sudo apt install linux-headers-$(uname -r)` |
+| `clock_gettime` error | Kernel < 5.8; upgrade WSL2 kernel via Windows Update |
 
-To simulate a second host on the same machine:
-```bash
-HOST_ID=SIMULATED-HOST-2 sudo python3 acds/telemetry/agent/agent.py
-```
+### Kafka / Docker Errors
+
+| Error | Solution |
+|-------|----------|
+| `docker compose` not found | Update Docker Desktop; use `docker compose` (no hyphen) |
+| Kafka not ready | Increase `sleep` from 15 to 30 seconds in `open_terminals.sh` |
+| Port 9092 already in use | Kill the old container: `docker compose down` then `up -d` |
+| `< 3 services running` warning | Restart Docker Desktop and retry |
+
+### Kafka Consumer Errors (Python services)
+
+| Error | Solution |
+|-------|----------|
+| `NoBrokersAvailable` | Kafka is not yet ready; wait 15–30 s after `docker compose up` |
+| `KAFKA_BOOTSTRAP_SERVERS` ignored | Services default to `localhost:9092`; ensure Kafka is on that port |
+
+### DPI Service
+
+| Error | Solution |
+|-------|----------|
+| `Permission denied` on Scapy | Run `dpi_main.py` with `sudo` |
+| No packets captured | Verify network interface is active; Scapy sniffs the default interface |
+
+### Frontend
+
+| Error | Solution |
+|-------|----------|
+| `npm install` fails | Ensure Node.js ≥ 18; run `nvm use --lts` |
+| Blank dashboard | Check that the Backend API on port 8000 is running |
+| WebSocket disconnecting | Confirm CORS middleware is configured (it allows `*` by default) |
+
+### `open_terminals.sh` Issues
+
+| Error | Solution |
+|-------|----------|
+| `wt.exe` not found | Install Windows Terminal from the Microsoft Store |
+| `ERROR: Cannot find telemetry dir` | Update `PROJECT_DIR` in the script to your actual WSL2 path |
+| Tabs open but services crash immediately | Check individual service logs for Python import errors |
 
 ---
 
-## Technology Stack
+## Python Dependency Summary
 
-| Layer | Technology |
-|-------|-----------|
-| Kernel probing | eBPF via BCC (Python) |
-| Message transport | Apache Kafka |
-| API bridge | FastAPI + Uvicorn + aiokafka |
-| Frontend framework | React 18 + Vite |
-| Charts | Recharts |
-| Styling | Tailwind CSS v4 |
-| Virtualized lists | react-window |
-| Date formatting | date-fns |
-| Icons | lucide-react |
+| Service | Key Packages |
+|---------|-------------|
+| **Telemetry Agent** | `bcc` (apt), `confluent-kafka≥2.3.0`, `jsonschema≥4.0.0` |
+| **DPI Service** | `scapy≥2.5.0`, `numpy≥1.24.0`, `confluent-kafka≥2.3.0` |
+| **Correlation Service** | `aiokafka≥0.8.1` |
+| **Backend API** | `fastapi≥0.103.1`, `uvicorn[standard]≥0.23.2`, `aiokafka≥0.8.1`, `websockets≥11.0.3`, `pydantic≥2.3.0`, `python-multipart≥0.0.6` |
 
----
+## Frontend Dependency Summary
 
-## Author
-
-**Pranav M K** — `pranavmkokkada@gmail.com`  
-Collaborator on [praptirn/ACDS](https://github.com/praptirn/ACDS)
-
-Branch: [`pranavmk`](https://github.com/praptirn/ACDS/tree/pranavmk)
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `react` + `react-dom` | ^19.2.0 | UI framework |
+| `react-router-dom` | ^7.13.1 | Client-side routing |
+| `recharts` | ^3.7.0 | Charts and graphs |
+| `lucide-react` | ^0.576.0 | Icon library |
+| `date-fns` | ^4.1.0 | Date formatting |
+| `react-window` | ^1.8.10 | Virtualised lists |
+| `vite` | ^7.3.1 | Dev server & bundler |
+| `tailwindcss` | ^4.2.1 | CSS utility framework |
