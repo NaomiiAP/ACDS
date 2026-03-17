@@ -4,9 +4,15 @@
 # Run from inside WSL: ./scripts/open_terminals.sh
 
 WT="wt.exe"
-PROJECT_DIR="/mnt/c/Users/PRANAV M K/MiniProject"
+
+# Resolve project root relative to this script's location (scripts/../)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 KAFKA_DIR="${PROJECT_DIR}/acds/telemetry"
-PASSWORD="Pmk190705*"
+
+# Read sudo password securely at runtime — never hardcode credentials
+read -rsp "[ACDS] Enter your WSL sudo password: " PASSWORD
+echo ""
 
 # ── Step 1: Restart Kafka + Zookeeper cleanly ─────────────────────────────────
 echo "============================================="
@@ -46,10 +52,10 @@ echo "Launching ACDS full stack in Windows Terminal..."
 
 "$WT" \
     new-tab --title "🧠 Telemetry Agent" \
-        wsl.exe bash -c "echo '${PASSWORD}' | sudo -S python3 '${PROJECT_DIR}/acds/telemetry/agent/agent.py' && bash || bash" \; \
+        wsl.exe bash -c "echo '${PASSWORD}' | sudo -S python3 '${PROJECT_DIR}/acds/telemetry/agent/agent.py' 2>&1 && bash || bash" \; \
     \
     new-tab --title "🌊 DPI Service" \
-        wsl.exe bash -c "echo '${PASSWORD}' | sudo -S python3 '${PROJECT_DIR}/dpi_service/dpi_main.py' && bash || bash" \; \
+        wsl.exe bash -c "echo '${PASSWORD}' | sudo -S python3 '${PROJECT_DIR}/dpi_service/dpi_main.py' 2>&1 && bash || bash" \; \
     \
     new-tab --title "🔗 Correlation Service" \
         wsl.exe bash -c "cd '${PROJECT_DIR}/acds/correlation_service' && python3 correlation_main.py && bash || bash" \; \

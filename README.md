@@ -193,7 +193,7 @@ Create an isolated virtual environment for each Python service to avoid package 
 
 #### Telemetry Agent
 ```bash
-cd ~/path/to/MiniProject/acds/telemetry
+cd acds/telemetry
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -202,6 +202,7 @@ source .venv/bin/activate
 pip install confluent-kafka>=2.3.0 jsonschema>=4.0.0
 
 deactivate
+cd ../..
 ```
 
 > **Important:** The `bcc` Python bindings come from the system package `python3-bpfcc`. You must either activate the venv with `--system-site-packages` or simply run `agent.py` with the system Python3 (outside a venv), since system site-packages include BCC:
@@ -213,32 +214,35 @@ pip3 install --user confluent-kafka jsonschema
 
 #### DPI Service
 ```bash
-cd ~/path/to/MiniProject/dpi_service
+cd dpi_service
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 deactivate
+cd ..
 ```
 
 #### Correlation Service
 ```bash
-cd ~/path/to/MiniProject/acds/correlation_service
+cd acds/correlation_service
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 deactivate
+cd ../..
 ```
 
 #### Backend API
 ```bash
-cd ~/path/to/MiniProject/acds/ui/backend
+cd acds/ui/backend
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 deactivate
+cd ../../..
 ```
 
 ---
@@ -259,36 +263,30 @@ node --version   # should show v18.x or higher
 
 #### Install Frontend Node Modules
 ```bash
-cd ~/path/to/MiniProject/acds/ui/frontend
+cd acds/ui/frontend
 npm install
+cd ../../..
 ```
 
 ---
 
 ## 6. One-Time Configuration
 
-### Update the Project Path in `open_terminals.sh`
+No manual path editing is needed. **`open_terminals.sh` automatically detects the project root** relative to its own location, so it works wherever the repo is cloned.
 
-Open `scripts/open_terminals.sh` in a text editor and update the `PROJECT_DIR` variable to match where you cloned the repository inside WSL2:
+### sudo Password (prompted at runtime)
 
-```bash
-# Line 7 in open_terminals.sh — change this to your path:
-PROJECT_DIR="/mnt/c/Users/<YOUR_USERNAME>/MiniProject"
+When you run `open_terminals.sh`, it will securely **prompt you for your WSL2 sudo password** before launching:
+
+```
+[ACDS] Enter your WSL sudo password:
 ```
 
-### Update the sudo Password
+This password is used only to start `agent.py` and `dpi_main.py`, which need root access for eBPF kernel probes and raw packet capture. It is **never stored in any file**.
 
-On **line 9** of `open_terminals.sh`, replace the placeholder with your WSL2 user password:
+### Optional: NOPASSWD for Python (skip the prompt)
 
-```bash
-PASSWORD="your_wsl_sudo_password"
-```
-
-> ⚠️ **Security Note:** This password is used to run `agent.py` and `dpi_main.py` with `sudo` (required for eBPF kernel probes and packet capture). Keep this file private and do not commit it to a public repository. Consider using a `sudoers` NOPASSWD rule instead.
-
-### Recommended: NOPASSWD for Python (Optional but Safer)
-
-Instead of hard-coding your password, add a sudoers rule:
+If you want the script to launch without any password prompt, add a sudoers rule:
 
 ```bash
 sudo visudo
@@ -298,8 +296,6 @@ Add at the bottom (replace `yourusername`):
 ```
 yourusername ALL=(ALL) NOPASSWD: /usr/bin/python3
 ```
-
-Then remove the `echo '${PASSWORD}' | sudo -S` prefix from the relevant lines in `open_terminals.sh`.
 
 ---
 
@@ -323,11 +319,13 @@ This script performs the following automatically:
 | 📨 Kafka Monitor | Console consumer for live messages | `kafka-console-consumer ...` |
 | 🔁 Traffic Generator | Continuous synthetic traffic | `./scripts/generate_traffic.sh` |
 
-**Run from inside WSL2:**
+**Run from inside WSL2** (from the repo root):
 
 ```bash
-cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject
-chmod +x scripts/open_terminals.sh
+# Navigate to wherever you cloned the repo
+cd /path/to/ACDS
+
+chmod +x scripts/open_terminals.sh scripts/generate_traffic.sh
 ./scripts/open_terminals.sh
 ```
 
@@ -337,21 +335,24 @@ chmod +x scripts/open_terminals.sh
 
 If you prefer to start each component yourself (e.g., on a headless server or without Windows Terminal), follow these steps **in order**, each in a separate terminal.
 
+> All commands below assume you are running from inside the **repo root directory** (the folder you cloned into).
+
 #### Step 1 — Start Kafka Stack (Docker)
 
 ```bash
-cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/telemetry
+cd acds/telemetry
 docker compose down          # stop any old containers
 docker compose up -d         # start Zookeeper + Kafka + Kafka-UI
 sleep 15                     # wait for Kafka to be ready
 docker compose ps            # verify all 3 services are "Up"
+cd ../..
 ```
 
 #### Step 2 — Start the Telemetry Agent
 
 ```bash
 # Must run as root for eBPF kprobe access
-sudo python3 /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/telemetry/agent/agent.py
+sudo python3 acds/telemetry/agent/agent.py
 ```
 
 Expected output:
@@ -366,7 +367,7 @@ Expected output:
 
 ```bash
 # Must run as root for raw packet capture (Scapy)
-sudo python3 /mnt/c/Users/<YOUR_USERNAME>/MiniProject/dpi_service/dpi_main.py
+sudo python3 dpi_service/dpi_main.py
 ```
 
 Expected output:
@@ -380,7 +381,7 @@ Expected output:
 #### Step 4 — Start the Correlation Service
 
 ```bash
-cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/correlation_service
+cd acds/correlation_service
 python3 correlation_main.py
 ```
 
@@ -396,7 +397,7 @@ Expected output:
 #### Step 5 — Start the Backend API
 
 ```bash
-cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/ui/backend
+cd acds/ui/backend
 python3 -m uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
@@ -408,7 +409,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 #### Step 6 — Start the React Frontend
 
 ```bash
-cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/ui/frontend
+cd acds/ui/frontend
 npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
@@ -427,7 +428,7 @@ Expected output:
 The `generate_traffic.sh` script runs in an infinite loop, generating synthetic network events so the pipeline has data to process even in a quiet environment.
 
 ```bash
-cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject
+# From the repo root:
 chmod +x scripts/generate_traffic.sh
 ./scripts/generate_traffic.sh
 ```
@@ -475,8 +476,8 @@ Once all services are running, open these URLs in your **Windows browser**:
 Press **Ctrl+C** in each terminal tab to stop its service, then:
 
 ```bash
-# Stop and remove Kafka containers
-cd /mnt/c/Users/<YOUR_USERNAME>/MiniProject/acds/telemetry
+# From the repo root, stop and remove Kafka containers:
+cd acds/telemetry
 docker compose down
 ```
 
@@ -534,7 +535,7 @@ Right-click the Docker Desktop icon in the Windows system tray → **Quit Docker
 | Error | Solution |
 |-------|----------|
 | `wt.exe` not found | Install Windows Terminal from the Microsoft Store |
-| `ERROR: Cannot find telemetry dir` | Update `PROJECT_DIR` in the script to your actual WSL2 path |
+| `ERROR: Cannot find telemetry dir` | Ensure you run the script from inside WSL2, not from PowerShell/CMD |
 | Tabs open but services crash immediately | Check individual service logs for Python import errors |
 
 ---
