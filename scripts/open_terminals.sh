@@ -66,8 +66,17 @@ echo "Launching ACDS full stack in Windows Terminal..."
     new-tab --title "🌐 React UI Frontend" \
         wsl.exe bash -c "cd '${PROJECT_DIR}/acds/ui/frontend' && npm run dev -- --host 0.0.0.0 --port 5173 && bash || bash" \; \
     \
+    new-tab --title "🤖 ML Detection" \
+        wsl.exe bash -c "cd '${PROJECT_DIR}/acds' && python3 -m ml_service.ml_main && bash || bash" \; \
+    \
+    new-tab --title "💬 LLM Triage" \
+        wsl.exe bash -c "cd '${PROJECT_DIR}/acds' && python3 -m llm_service.llm_main && bash || bash" \; \
+    \
+    new-tab --title "🕸️ Graph Service" \
+        wsl.exe bash -c "cd '${PROJECT_DIR}/acds' && python3 -m graph_service.graph_main && bash || bash" \; \
+    \
     new-tab --title "📨 Kafka Monitor" \
-        wsl.exe bash -c "docker exec telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic enriched.flows 2>/dev/null || docker exec telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic telemetry.raw && bash || bash" \; \
+        wsl.exe bash -c "docker exec telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic ml.alerts 2>/dev/null || docker exec telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic enriched.flows && bash || bash" \; \
     \
     new-tab --title "🔁 Traffic Generator" \
         wsl.exe bash -c "cd '${PROJECT_DIR}' && ./scripts/generate_traffic.sh && bash || bash"
