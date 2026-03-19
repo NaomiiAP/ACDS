@@ -10,9 +10,9 @@ import logging
 
 from fastapi import FastAPI, HTTPException
 
-from ollama_client import OllamaClient
-from prompt_templates import build_prompt
-from triage_formatter import parse_llm_output
+from llm_service.ollama_client import OllamaClient
+from llm_service.prompt_templates import build_prompt
+from llm_service.triage_formatter import parse_llm_output
 
 logging.basicConfig(
     level=logging.INFO,

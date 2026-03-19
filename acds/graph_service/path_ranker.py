@@ -7,7 +7,7 @@ most dangerous (lowest-cost ≡ highest-risk) paths through the graph.
 
 import logging
 
-from neo4j_client import Neo4jClient
+from graph_service.neo4j_client import Neo4jClient
 
 log = logging.getLogger("graph_service.path_ranker")
 
