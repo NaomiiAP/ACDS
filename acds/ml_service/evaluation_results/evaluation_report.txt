@@ -1,0 +1,47 @@
+============================================================
+ACDS MODEL EVALUATION REPORT
+Generated: 2026-03-20T11:14:18.090496
+============================================================
+
+--- XGBoost ---
+  accuracy            : 0.9925
+  precision           : 0.9497
+  recall              : 0.9936
+  f1                  : 0.9712
+  auc                 : 0.9996
+
+--- RandomForest ---
+  accuracy            : 0.9867
+  precision           : 0.9082
+  recall              : 0.9965
+  f1                  : 0.9503
+  auc                 : 0.9991
+
+--- Ensemble ---
+  accuracy            : 0.9916
+  precision           : 0.9421
+  recall              : 0.9955
+  f1                  : 0.9681
+  auc                 : 0.9995
+
+--- AUC Values ---
+  XGBoost             : 0.9996
+  RandomForest        : 0.9991
+  Ensemble            : 0.9995
+
+--- Generated Charts ---
+  - confusion_matrix_xgb.png
+  - confusion_matrix_rf.png
+  - confusion_matrix_ensemble.png
+  - roc_curves.png
+  - precision_recall_curves.png
+  - feature_importance.png
+  - score_distribution.png
+  - detection_by_type.png
+  - fpr_over_time.png
+  - cv_scores.png
+  - learning_curves_xgb.png
+  - learning_curves_rf.png
+  - model_comparison.png
+
+============================================================

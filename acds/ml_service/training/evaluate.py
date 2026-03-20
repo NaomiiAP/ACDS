@@ -79,14 +79,14 @@ def _apply_dark_style():
     plt.rcParams.update({
         "figure.facecolor": "#0a0d12",
         "axes.facecolor": "#111620",
-        "axes.edgecolor": "rgba(255,255,255,0.15)",
+        "axes.edgecolor": (1, 1, 1, 0.15),
         "axes.labelcolor": SLATE,
         "xtick.color": SLATE,
         "ytick.color": SLATE,
         "text.color": "#e2e8f0",
-        "grid.color": "rgba(255,255,255,0.06)",
+        "grid.color": (1, 1, 1, 0.06),
         "legend.facecolor": "#111620",
-        "legend.edgecolor": "rgba(255,255,255,0.1)",
+        "legend.edgecolor": (1, 1, 1, 0.1),
         "font.size": 11,
         "figure.dpi": 150,
     })
@@ -115,7 +115,7 @@ def plot_confusion_matrix(
         xticklabels=labels,
         yticklabels=labels,
         linewidths=0.5,
-        linecolor="rgba(255,255,255,0.1)",
+        linecolor=(1, 1, 1, 0.1),
         cbar_kws={"shrink": 0.8},
         ax=ax,
     )
@@ -160,7 +160,7 @@ def plot_roc_curves(
         color = MODEL_COLORS.get(name, CYAN)
         ax.plot(fpr, tpr, color=color, lw=2, label=f"{name}  (AUC = {roc_auc:.4f})")
 
-    ax.plot([0, 1], [0, 1], linestyle="--", color="rgba(255,255,255,0.2)", lw=1)
+    ax.plot([0, 1], [0, 1], linestyle="--", color=(1, 1, 1, 0.2), lw=1)
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
     ax.set_title("ROC Curves", fontsize=14, fontweight="bold", color="#e2e8f0", pad=12)
@@ -298,7 +298,7 @@ def plot_detection_by_type(
 
     fig, ax = plt.subplots(figsize=(10, 6))
     colors = [EMERALD if r >= 0.9 else AMBER if r >= 0.7 else RED for r in rates]
-    bars = ax.bar(names, rates, color=colors, alpha=0.85, edgecolor="rgba(255,255,255,0.1)")
+    bars = ax.bar(names, rates, color=colors, alpha=0.85, edgecolor=(1, 1, 1, 0.1))
 
     for bar, rate in zip(bars, rates):
         ax.text(
@@ -351,7 +351,7 @@ def plot_cv_scores(
     for patch, color in zip(bp["boxes"], colors):
         patch.set_facecolor(color)
         patch.set_alpha(0.6)
-        patch.set_edgecolor("rgba(255,255,255,0.3)")
+        patch.set_edgecolor((1, 1, 1, 0.3))
 
     ax.set_ylabel("F1 Score")
     ax.set_title("Cross-Validation F1 Scores", fontsize=14, fontweight="bold", color="#e2e8f0", pad=12)
@@ -381,7 +381,7 @@ def plot_model_comparison(
         vals = [metrics_dict[name].get(m, 0.0) for m in metric_names]
         color = MODEL_COLORS.get(name, CYAN)
         bars = ax.bar(x + i * width - (n_models - 1) * width / 2, vals, width,
-                      label=name, color=color, alpha=0.85, edgecolor="rgba(255,255,255,0.1)")
+                      label=name, color=color, alpha=0.85, edgecolor=(1, 1, 1, 0.1))
         for bar, v in zip(bars, vals):
             ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
                     f"{v:.3f}", ha="center", va="bottom", fontsize=8, color="#e2e8f0")
@@ -658,10 +658,22 @@ def evaluate_all(
 
     # ---- Cross-validation scores (if full dataset provided) ----
     if X_full is not None and y_full is not None:
+        # Subsample for CV/learning curves to avoid memory issues on large datasets
+        max_cv_samples = 100_000
+        if len(y_full) > max_cv_samples:
+            log.info("Subsampling %d -> %d for CV/learning curves", len(y_full), max_cv_samples)
+            rng = np.random.RandomState(42)
+            idx = rng.choice(len(y_full), max_cv_samples, replace=False)
+            X_cv = X_full[idx]
+            y_cv = y_full[idx]
+        else:
+            X_cv = X_full
+            y_cv = y_full
+
         skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-        xgb_cv = cross_val_score(xgb_model.model, X_full, y_full, cv=skf, scoring="f1", n_jobs=-1)
-        rf_cv = cross_val_score(rf_model.model, X_full, y_full, cv=skf, scoring="f1", n_jobs=-1)
+        xgb_cv = cross_val_score(xgb_model.model, X_cv, y_cv, cv=skf, scoring="f1", n_jobs=1)
+        rf_cv = cross_val_score(rf_model.model, X_cv, y_cv, cv=skf, scoring="f1", n_jobs=1)
 
         cv_path = os.path.join(output_dir, "cv_scores.png")
         plot_cv_scores({"XGBoost": xgb_cv, "RandomForest": rf_cv}, cv_path)
@@ -669,11 +681,11 @@ def evaluate_all(
 
         # ---- Learning curves ----
         lc_xgb_path = os.path.join(output_dir, "learning_curves_xgb.png")
-        plot_learning_curves(xgb_model.model, X_full, y_full, "XGBoost", lc_xgb_path)
+        plot_learning_curves(xgb_model.model, X_cv, y_cv, "XGBoost", lc_xgb_path)
         charts.append("learning_curves_xgb.png")
 
         lc_rf_path = os.path.join(output_dir, "learning_curves_rf.png")
-        plot_learning_curves(rf_model.model, X_full, y_full, "RandomForest", lc_rf_path)
+        plot_learning_curves(rf_model.model, X_cv, y_cv, "RandomForest", lc_rf_path)
         charts.append("learning_curves_rf.png")
 
     # ---- Per-model metrics ----
@@ -754,7 +766,7 @@ def main():
     X_test = X[test_idx]
     y_test = y[test_idx]
 
-    y_multiclass = data.get("y_multiclass")
+    y_multiclass = data.get("y_multi")
     y_test_mc = y_multiclass[test_idx] if y_multiclass is not None else None
 
     metrics = evaluate_all(
