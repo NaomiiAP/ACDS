@@ -28,15 +28,18 @@
 
 ## 1. Project Overview
 
-ACDS is a five-layer security observability pipeline:
+ACDS is a multi-layer security observability and detection pipeline:
 
 | Layer | Service | Role |
 |-------|---------|------|
 | **L4** | **Telemetry Agent** (`acds/telemetry/agent/`) | eBPF kernel probes capture every `connect` and `execve` syscall and publish raw events to Kafka (`telemetry.raw`) |
 | **L5** | **DPI Service** (`dpi_service/`) | Scapy packet capture builds bidirectional flows and extracts statistical features, publishing to Kafka (`dpi.features`) |
 | **L6** | **Correlation Service** (`acds/correlation_service/`) | Consumes both Kafka topics, correlates process identity with network flows, scores risk, and publishes fully attributed events (`enriched.flows`) |
-| **L7** | **Backend API** (`acds/ui/backend/`) | FastAPI server bridges Kafka to the browser via REST endpoints and WebSockets (`/ws/telemetry`, `/ws/threats`) |
-| **UI** | **React Frontend** (`acds/ui/frontend/`) | Vite + React dashboard visualising live telemetry events, DPI flows, and threat scores in real time |
+| **L7** | **ML Detection** (`acds/ml_service/`) | 4-model ensemble (XGBoost, RandomForest, Autoencoder, IsolationForest) scores enriched flows and publishes alerts to Kafka (`ml.alerts`) |
+| **L8** | **LLM Triage** (`acds/llm_service/`) | Local Llama 3.2 via Ollama provides human-readable explanations and MITRE ATT&CK mapping for ML-flagged alerts |
+| **L9** | **Attack Graph** (`acds/graph_service/`) | Neo4j-backed graph service tracks threat progression with risk propagation and attack path ranking |
+| **API** | **Backend API** (`acds/ui/backend/`) | FastAPI server bridges Kafka to the browser via REST endpoints and WebSockets |
+| **UI** | **React Frontend** (`acds/ui/frontend/`) | Vite + React dashboard visualising live telemetry, ML alerts, LLM triage, and attack graphs in real time |
 
 Kafka (with Zookeeper) runs inside Docker and connects all layers together.
 
@@ -458,7 +461,7 @@ Once all services are running, open these URLs in your **Windows browser**:
 | **API Status** | http://localhost:8000/api/status | Kafka connection health |
 | **Live Events** | http://localhost:8000/api/events | Last 100 raw telemetry events |
 | **Threats** | http://localhost:8000/api/threats | Enriched + risk-scored flow events |
-| **Kafka UI** | http://localhost:8080 | Browse Kafka topics and messages |
+| **Kafka UI** | http://localhost:8085 | Browse Kafka topics and messages |
 
 ### WebSocket Endpoints
 

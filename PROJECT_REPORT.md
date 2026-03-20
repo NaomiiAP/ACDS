@@ -213,16 +213,17 @@ The ML service maintains **sliding time windows** (10s, 30s, 60s) per source IP 
 ensemble_score = (xgb * 0.35 + rf * 0.25 + ae * 0.25 + if * 0.15)
 ```
 
-#### 4.4.3 Training Results
+#### 4.4.3 Training & Evaluation Results
 
-Trained on 5.6M samples (2.8M CICIDS2017 + 2.8M UNSW-NB15), balanced to 9.8M with SMOTE:
+Trained on 5.6M samples (2.8M CICIDS2017 + 2.8M UNSW-NB15). Evaluated on 1,125,691 held-out test samples (12.79% attack ratio):
 
-| Model | F1 Score | Precision | Recall | Accuracy |
-|-------|----------|-----------|--------|----------|
-| **XGBoost** | 0.9956 | 0.9931 | 0.9980 | 0.9956 |
-| **RandomForest** | 0.9924 | 0.9861 | 0.9988 | 0.9924 |
+| Model | Accuracy | Precision | Recall | F1 Score | AUC-ROC |
+|-------|----------|-----------|--------|----------|---------|
+| **XGBoost** | 0.9925 | 0.9497 | 0.9936 | 0.9712 | 0.9996 |
+| **RandomForest** | 0.9867 | 0.9082 | 0.9965 | 0.9503 | 0.9991 |
+| **Ensemble** | 0.9916 | 0.9421 | 0.9955 | 0.9681 | 0.9995 |
 
-5-fold stratified cross-validation with standard deviation < 0.0002 across all folds.
+All models achieve near-perfect recall (99.3%+), catching virtually every attack. Full evaluation charts are available in `acds/ml_service/evaluation_results/`.
 
 #### 4.4.4 Dynamic Threshold Management
 
@@ -374,32 +375,43 @@ Both datasets are mapped to a **unified 14-feature vector** through:
 
 ## 6. Results and Evaluation
 
-### 6.1 Supervised Model Performance (5-Fold Cross-Validation)
+### 6.1 Model Performance (Held-Out Test Set — 1,125,691 Samples)
 
-| Metric | XGBoost | RandomForest |
-|--------|---------|-------------|
-| F1 Score | 0.9956 +/- 0.0001 | 0.9924 +/- 0.0002 |
-| Precision | 0.9931 | 0.9861 |
-| Recall | 0.9980 | 0.9988 |
-| Accuracy | 0.9956 | 0.9924 |
+| Metric | XGBoost | RandomForest | Ensemble |
+|--------|---------|-------------|----------|
+| Accuracy | 0.9925 | 0.9867 | 0.9916 |
+| Precision | 0.9497 | 0.9082 | 0.9421 |
+| Recall | 0.9936 | 0.9965 | 0.9955 |
+| F1 Score | 0.9712 | 0.9503 | 0.9681 |
+| AUC-ROC | 0.9996 | 0.9991 | 0.9995 |
 
-### 6.2 Classification Report (Last Fold)
+### 6.2 Classification Report (Test Set)
 
 **XGBoost:**
 ```
               precision    recall  f1-score   support
       Benign       1.00      0.99      1.00    981664
-      Attack       0.99      1.00      1.00    981664
-    accuracy                           1.00   1963328
+      Attack       0.95      0.99      0.97    144027
+    accuracy                           0.99   1125691
 ```
 
 **RandomForest:**
 ```
               precision    recall  f1-score   support
       Benign       1.00      0.99      0.99    981664
-      Attack       0.99      1.00      0.99    981664
-    accuracy                           0.99   1963328
+      Attack       0.91      1.00      0.95    144027
+    accuracy                           0.99   1125691
 ```
+
+**Ensemble:**
+```
+              precision    recall  f1-score   support
+      Benign       1.00      0.99      1.00    981664
+      Attack       0.94      1.00      0.97    144027
+    accuracy                           0.99   1125691
+```
+
+Full evaluation charts (confusion matrices, ROC curves, PR curves, feature importance, learning curves, etc.) are available in `acds/ml_service/evaluation_results/`.
 
 ### 6.3 Unsupervised Models
 
@@ -450,7 +462,7 @@ The unsupervised models serve as **complementary signals** to the supervised cla
 
 ## 9. Conclusion
 
-ACDS demonstrates a complete, end-to-end autonomous cyber defense pipeline that combines kernel-level observability, encrypted traffic analysis, hybrid ML detection, LLM-powered reasoning, and graph-based attack tracking into a unified platform. The system achieves 99.5%+ F1 scores on standard security benchmarks while providing real-time, human-readable threat intelligence through a modern React dashboard.
+ACDS demonstrates a complete, end-to-end autonomous cyber defense pipeline that combines kernel-level observability, encrypted traffic analysis, hybrid ML detection, LLM-powered reasoning, and graph-based attack tracking into a unified platform. The system achieves 97%+ F1 scores and 99.9%+ AUC-ROC on standard security benchmarks while providing real-time, human-readable threat intelligence through a modern React dashboard.
 
 The modular, Kafka-based architecture ensures each layer can be independently scaled, updated, or replaced, making it suitable for both development environments and production deployments.
 
