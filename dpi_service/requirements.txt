@@ -1,0 +1,11 @@
+# DPI Service Requirements
+# Install via: pip install -r requirements.txt
+
+# Packet capture
+scapy>=2.5.0
+
+# Feature computation
+numpy>=1.24.0
+
+# Kafka producer
+confluent-kafka>=2.3.0
