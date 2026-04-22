@@ -1,0 +1,2 @@
+# ACDS Correlation Service Requirements
+aiokafka>=0.8.1
