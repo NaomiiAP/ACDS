@@ -23,10 +23,10 @@ import time
 import uvicorn
 from aiokafka import AIOKafkaConsumer
 
-from graph_service.neo4j_client import Neo4jClient
-from graph_service.graph_schema import build_graph_from_alert
-from graph_service.risk_propagation import propagate_risk, ttl_cleanup
-from graph_service.api import app as fastapi_app, set_neo4j_client
+from acds.graph_service.neo4j_client import Neo4jClient
+from acds.graph_service.graph_schema import build_graph_from_alert
+from acds.graph_service.risk_propagation import propagate_risk, ttl_cleanup
+from acds.graph_service.api import app as fastapi_app, set_neo4j_client
 
 logging.basicConfig(
     level=logging.INFO,

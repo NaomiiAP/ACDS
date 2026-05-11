@@ -23,11 +23,11 @@ from typing import Any, Dict, Optional
 import numpy as np
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
-from ml_service.feature_pipeline import FeaturePipeline
-from ml_service.inference.onnx_runner import ONNXRunner
-from ml_service.inference.threshold_manager import ThresholdManager
-from ml_service.models.ensemble import EnsembleModel
-from ml_service.registry.model_registry import ModelRegistry
+from acds.ml_service.feature_pipeline import FeaturePipeline
+from acds.ml_service.inference.onnx_runner import ONNXRunner
+from acds.ml_service.inference.threshold_manager import ThresholdManager
+from acds.ml_service.models.ensemble import EnsembleModel
+from acds.ml_service.registry.model_registry import ModelRegistry
 
 logging.basicConfig(
     level=logging.INFO,

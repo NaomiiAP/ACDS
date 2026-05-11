@@ -17,8 +17,8 @@ import sys
 import time
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from state_store import registry
-from flow_correlator import correlate
+from acds.correlation_service.state_store import registry
+from acds.correlation_service.flow_correlator import correlate
 
 logging.basicConfig(
     level=logging.INFO,

@@ -12,7 +12,7 @@ Also provides a TTL cleanup that removes nodes and edges older than 24 hours.
 import logging
 import time
 
-from graph_service.neo4j_client import Neo4jClient
+from acds.graph_service.neo4j_client import Neo4jClient
 
 log = logging.getLogger("graph_service.risk")
 

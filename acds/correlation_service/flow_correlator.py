@@ -9,8 +9,8 @@ When a dpi.features event arrives:
 5. Return enriched event ready for Kafka publish
 """
 import time
-from state_store import registry
-from risk_scorer import score
+from acds.correlation_service.state_store import registry
+from acds.correlation_service.risk_scorer import score
 
 
 def correlate(dpi_event: dict) -> dict:

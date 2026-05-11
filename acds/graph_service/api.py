@@ -16,9 +16,9 @@ from typing import Optional
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from graph_service.neo4j_client import Neo4jClient
-from graph_service.path_ranker import get_top_attack_paths, get_paths_from_ip
-from graph_service.risk_propagation import propagate_risk
+from acds.graph_service.neo4j_client import Neo4jClient
+from acds.graph_service.path_ranker import get_top_attack_paths, get_paths_from_ip
+from acds.graph_service.risk_propagation import propagate_risk
 
 log = logging.getLogger("graph_service.api")
 
