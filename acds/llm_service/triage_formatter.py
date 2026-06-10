@@ -29,7 +29,8 @@ DEFAULTS = {
 
 def _extract_field(text: str, label: str) -> str | None:
     """Extract the value after 'LABEL:' up to the next known label or end."""
-    pattern = rf"{label}\s*:\s*(.+?)(?=\n(?:EXPLANATION|ATTACK_STAGE|CONFIDENCE|SEVERITY|MITIGATION)\s*:|$)"
+    # Handle bolding like **EXPLANATION:** and case-insensitivity
+    pattern = rf"(?:\*\*|#)?\s*{label}\s*(?:\*\*|#)?\s*:\s*(.+?)(?=\n(?:EXPLANATION|ATTACK_STAGE|CONFIDENCE|SEVERITY|MITIGATION|ADVISORY)\s*:|$)"
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
@@ -38,12 +39,15 @@ def _extract_field(text: str, label: str) -> str | None:
 
 def _extract_mitigation(text: str) -> list[str]:
     """Extract bullet-pointed mitigation steps after 'MITIGATION:'."""
-    pattern = r"MITIGATION\s*:\s*\n?((?:\s*-\s*.+\n?)+)"
+    pattern = r"(?:\*\*|#)?\s*MITIGATION\s*(?:\*\*|#)?\s*:\s*\n?((?:\s*(?:-|\*|\d+\.)\s*.+\n?)+)"
     match = re.search(pattern, text, re.IGNORECASE)
     if not match:
-        return []
+        # Try a simpler fallback for mitigation steps
+        fallback = re.findall(r"(?:-|\*)\s*(.+)", text)
+        return [s.strip() for s in fallback if s.strip()][-5:] if fallback else []
+    
     block = match.group(1)
-    steps = re.findall(r"-\s*(.+)", block)
+    steps = re.findall(r"(?:-|\*|\d+\.)\s*(.+)", block)
     return [s.strip() for s in steps if s.strip()]
 
 

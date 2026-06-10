@@ -2,16 +2,22 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { GitBranch, Network, AlertTriangle, ChevronRight, ChevronDown, Circle, Minus, RefreshCw } from 'lucide-react';
 
 const GRAPH_API = 'http://localhost:8100/api/graph';
-const CARD_BG = '#111620';
-const CARD_BORDER = 'rgba(255,255,255,0.07)';
+const CARD_BG = '#0c1018';
+const CARD_BORDER = 'rgba(255,255,255,0.06)';
 
 const NODE_COLORS = {
     host: '#3b82f6',
     container: '#06b6d4',
     process: '#10b981',
-    ip: '#6b7280',
+    ip: '#a78bfa',
     default: '#64748b',
 };
+
+const GRAPH_STYLES = `
+@keyframes flowDash { to { stroke-dashoffset: -20; } }
+@keyframes pulseRing { 0%,100% { opacity:.15; transform: scale(1); } 50% { opacity:.4; transform: scale(1.5); } }
+@keyframes floatDot { 0%,100% { opacity:.08; } 50% { opacity:.25; } }
+`;
 
 const RISK = {
     high: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)', label: 'HIGH' },
@@ -36,109 +42,90 @@ function RiskBadge({ level }) {
     );
 }
 
-/* ─── Simple Force-Directed SVG Graph ─── */
-function ForceGraph({ nodes, edges }) {
+/* ─── Cyberpunk Force-Directed SVG Graph ─── */
+function ForceGraph({ nodes: rawNodes, edges: rawEdges }) {
     const svgRef = useRef(null);
-    const animRef = useRef(null);
     const [positions, setPositions] = useState([]);
     const [hoveredNode, setHoveredNode] = useState(null);
-    const [dimensions, setDimensions] = useState({ width: 900, height: 500 });
+    const [selectedNode, setSelectedNode] = useState(null);
+    const [dimensions, setDimensions] = useState({ width: 900, height: 550 });
 
-    // Initialize positions
+    // Map node label->type for coloring
+    const nodes = useMemo(() => (rawNodes || []).map(n => ({
+        ...n, type: (n.label || n.type || 'default').toLowerCase(),
+    })), [rawNodes]);
+
+    // Keep raw edges as-is (source/target are integer indices)
+    const edges = rawEdges || [];
+
+    // Background particles
+    const bgDots = useMemo(() => Array.from({length:40},()=>({
+        x: Math.random()*100, y: Math.random()*100,
+        r: Math.random()*1.5+0.3, dur: Math.random()*8+4, delay: Math.random()*-8,
+    })), []);
+
+    // Deduplicate edges for cleaner rendering (keep highest score per pair)
+    const dedupedEdges = useMemo(() => {
+        const map = new Map();
+        edges.forEach(e => {
+            const key = `${e.source}-${e.target}`;
+            const existing = map.get(key);
+            if (!existing || (e.ensemble_score||0) > (existing.ensemble_score||0)) map.set(key, e);
+        });
+        return Array.from(map.values());
+    }, [edges]);
+
+    // Combined: initialize positions + run force simulation once
+    const simDone = useRef(false);
     useEffect(() => {
         if (!nodes || nodes.length === 0) return;
 
         const w = dimensions.width;
         const h = dimensions.height;
-        const initial = nodes.map((n, i) => ({
+        const pos = nodes.map((n) => ({
             ...n,
             x: w / 2 + (Math.random() - 0.5) * w * 0.6,
             y: h / 2 + (Math.random() - 0.5) * h * 0.6,
-            vx: 0,
-            vy: 0,
+            vx: 0, vy: 0,
         }));
-        setPositions(initial);
-    }, [nodes, dimensions]);
 
-    // Force simulation
-    useEffect(() => {
-        if (positions.length === 0 || !edges) return;
-
-        let running = true;
-        let iter = 0;
-        const maxIter = 200;
-        const nodeMap = {};
-        positions.forEach((p, i) => { nodeMap[p.id] = i; });
-
-        function simulate() {
-            if (!running || iter >= maxIter) return;
-            iter++;
-
-            const pos = positions.map(p => ({ ...p }));
-            const w = dimensions.width;
-            const h = dimensions.height;
-
-            // Repulsive forces (nodes push each other away)
+        // Run force simulation synchronously
+        for (let iter = 0; iter < 200; iter++) {
             for (let i = 0; i < pos.length; i++) {
                 for (let j = i + 1; j < pos.length; j++) {
                     let dx = pos[j].x - pos[i].x;
                     let dy = pos[j].y - pos[i].y;
                     let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                    let force = 5000 / (dist * dist);
-                    let fx = (dx / dist) * force;
-                    let fy = (dy / dist) * force;
-                    pos[i].vx -= fx;
-                    pos[i].vy -= fy;
-                    pos[j].vx += fx;
-                    pos[j].vy += fy;
+                    let force = 4000 / (dist * dist);
+                    pos[i].vx -= (dx / dist) * force;
+                    pos[i].vy -= (dy / dist) * force;
+                    pos[j].vx += (dx / dist) * force;
+                    pos[j].vy += (dy / dist) * force;
                 }
             }
-
-            // Attractive forces (edges pull connected nodes together)
-            edges.forEach(e => {
-                const si = nodeMap[e.source];
-                const ti = nodeMap[e.target];
-                if (si === undefined || ti === undefined) return;
-                let dx = pos[ti].x - pos[si].x;
-                let dy = pos[ti].y - pos[si].y;
+            dedupedEdges.forEach(e => {
+                if (e.source >= pos.length || e.target >= pos.length) return;
+                let dx = pos[e.target].x - pos[e.source].x;
+                let dy = pos[e.target].y - pos[e.source].y;
                 let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                let force = (dist - 120) * 0.01;
-                let fx = (dx / dist) * force;
-                let fy = (dy / dist) * force;
-                pos[si].vx += fx;
-                pos[si].vy += fy;
-                pos[ti].vx -= fx;
-                pos[ti].vy -= fy;
+                let force = (dist - 100) * 0.025;
+                pos[e.source].vx += (dx / dist) * force;
+                pos[e.source].vy += (dy / dist) * force;
+                pos[e.target].vx -= (dx / dist) * force;
+                pos[e.target].vy -= (dy / dist) * force;
             });
-
-            // Center gravity
             pos.forEach(p => {
-                p.vx += (w / 2 - p.x) * 0.002;
-                p.vy += (h / 2 - p.y) * 0.002;
+                p.vx += (w / 2 - p.x) * 0.003;
+                p.vy += (h / 2 - p.y) * 0.003;
+                p.vx *= 0.82;
+                p.vy *= 0.82;
+                p.x = Math.max(50, Math.min(w - 50, p.x + p.vx));
+                p.y = Math.max(50, Math.min(h - 50, p.y + p.vy));
             });
-
-            // Apply velocities with damping
-            const damping = 0.85;
-            pos.forEach(p => {
-                p.vx *= damping;
-                p.vy *= damping;
-                p.x += p.vx;
-                p.y += p.vy;
-                // Clamp to bounds
-                p.x = Math.max(30, Math.min(w - 30, p.x));
-                p.y = Math.max(30, Math.min(h - 30, p.y));
-            });
-
-            setPositions(pos);
-            animRef.current = requestAnimationFrame(simulate);
         }
 
-        animRef.current = requestAnimationFrame(simulate);
-        return () => {
-            running = false;
-            if (animRef.current) cancelAnimationFrame(animRef.current);
-        };
-    }, [positions.length]); // only run once when positions are initialized
+        setPositions(pos);
+    }, [nodes, dedupedEdges, dimensions]);
 
     // Resize observer
     useEffect(() => {
@@ -146,90 +133,166 @@ function ForceGraph({ nodes, edges }) {
         if (!container) return;
         const observer = new ResizeObserver(entries => {
             for (const entry of entries) {
-                setDimensions({ width: entry.contentRect.width, height: Math.max(450, entry.contentRect.height) });
+                if (entry.contentRect.width > 0) {
+                    setDimensions({ width: entry.contentRect.width, height: Math.max(500, entry.contentRect.height) });
+                }
             }
         });
         observer.observe(container);
         return () => observer.disconnect();
     }, []);
 
-    const posMap = useMemo(() => {
-        const m = {};
-        positions.forEach(p => { m[p.id] = p; });
-        return m;
-    }, [positions]);
+    console.log('[ForceGraph] Render:', { nodes: nodes.length, positions: positions.length, hasData: nodes.length > 0 && positions.length > 0 });
 
-    if (!nodes || nodes.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-600">
-                <Network className="h-12 w-12" />
-                <p className="text-lg font-medium">No graph data yet</p>
-                <p className="text-sm">Start the Attack Graph service to visualize network relationships</p>
-            </div>
-        );
+
+    // Calculate posMap and connectedSet as plain variables (not hooks) to avoid ANY hook order issues
+    const posMap = {};
+    positions.forEach(p => { posMap[p.id] = p; });
+
+    const active = selectedNode || hoveredNode;
+    const connectedSet = new Set();
+    if (active && positions.length > 0) {
+        connectedSet.add(active);
+        dedupedEdges.forEach(e => {
+            const s = positions[e.source];
+            const t = positions[e.target];
+            if (!s || !t) return;
+            if (s.id === active) connectedSet.add(t.id);
+            if (t.id === active) connectedSet.add(s.id);
+        });
     }
 
+    const hasData = nodes && nodes.length > 0 && positions.length > 0;
+    const activeConnectedSet = active ? connectedSet : null;
+
+
     return (
-        <div className="relative w-full" style={{ height: dimensions.height }}>
-            <svg ref={svgRef} width={dimensions.width} height={dimensions.height} className="w-full">
-                {/* Edges */}
-                {edges?.map((e, i) => {
-                    const s = posMap[e.source];
-                    const t = posMap[e.target];
-                    if (!s || !t) return null;
-                    const isSuspicious = e.type === 'SUSPICIOUS_CONNECTION' || e.label === 'SUSPICIOUS_CONNECTION';
-                    return (
-                        <line key={i}
-                            x1={s.x} y1={s.y} x2={t.x} y2={t.y}
-                            stroke={isSuspicious ? '#ef4444' : 'rgba(255,255,255,0.1)'}
-                            strokeWidth={isSuspicious ? 2 : 1}
-                            strokeDasharray={isSuspicious ? '' : '4,4'}
-                        />
-                    );
-                })}
-                {/* Nodes */}
-                {positions.map(node => {
-                    const typeKey = (node.type || 'default').toLowerCase();
-                    const color = NODE_COLORS[typeKey] || NODE_COLORS.default;
-                    const radius = Math.max(6, Math.min(20, (node.risk_score || 0.1) * 25));
-                    const isHovered = hoveredNode === node.id;
-                    return (
-                        <g key={node.id}
-                            onMouseEnter={() => setHoveredNode(node.id)}
-                            onMouseLeave={() => setHoveredNode(null)}
-                            style={{ cursor: 'pointer' }}>
-                            <circle cx={node.x} cy={node.y} r={radius + (isHovered ? 4 : 0)}
-                                fill={color} fillOpacity={isHovered ? 0.4 : 0.15}
-                                stroke={color} strokeWidth={isHovered ? 2 : 1} />
-                            <circle cx={node.x} cy={node.y} r={3}
-                                fill={color} />
-                            {isHovered && (
-                                <text x={node.x} y={node.y - radius - 8}
-                                    textAnchor="middle" fill="white" fontSize="11" fontFamily="monospace">
-                                    {node.label || node.id}
+        <div className="relative w-full overflow-hidden rounded-2xl" style={{ height: dimensions.height, background: 'radial-gradient(ellipse at 50% 50%, #0a1628 0%, #050810 100%)' }}
+            onClick={() => setSelectedNode(null)}>
+            <style>{GRAPH_STYLES}</style>
+            
+            {!hasData ? (
+                <div className="flex flex-col items-center justify-center h-full gap-4 text-slate-600">
+                    <Network className="h-12 w-12 animate-pulse" />
+                    <p className="text-lg font-medium text-slate-400">Initializing Neural Graph...</p>
+                    <p className="text-sm">Run <code className="text-cyan-400">python scripts/inject_demo_alerts.py</code> to see live data</p>
+                </div>
+            ) : (
+                <svg ref={svgRef} width={dimensions.width} height={dimensions.height} className="w-full">
+                    <defs>
+                        <filter id="glowSm"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                        <filter id="edgeGlow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                    </defs>
+                    {/* Subtle grid */}
+                    {Array.from({length: Math.ceil(dimensions.width/60)}).map((_,i)=>(
+                        <line key={`gv${i}`} x1={i*60} y1={0} x2={i*60} y2={dimensions.height} stroke="rgba(100,180,255,0.03)" strokeWidth="0.5"/>
+                    ))}
+                    {Array.from({length: Math.ceil(dimensions.height/60)}).map((_,i)=>(
+                        <line key={`gh${i}`} x1={0} y1={i*60} x2={dimensions.width} y2={i*60} stroke="rgba(100,180,255,0.03)" strokeWidth="0.5"/>
+                    ))}
+
+                    {/* ── EDGES ── always visible, bold */}
+                    {dedupedEdges.map((e, i) => {
+                        const s = positions[e.source];
+                        const t = positions[e.target];
+                        if (!s || !t) return null;
+                        const isSuspicious = e.rel_type === 'SUSPICIOUS_CONNECTION';
+                        const isRelated = activeConnectedSet && (activeConnectedSet.has(s.id) && activeConnectedSet.has(t.id));
+                        const dimmed = activeConnectedSet && !isRelated;
+                        const edgeColor = isSuspicious ? '#ef4444' : '#6366f1';
+
+                        return (
+                            <g key={`e${i}`} opacity={dimmed ? 0.06 : 1}>
+                                {/* Glow layer */}
+                                <line x1={s.x} y1={s.y} x2={t.x} y2={t.y}
+                                    stroke={edgeColor} strokeWidth={isRelated ? 5 : 3} opacity={isRelated ? 0.3 : 0.12} filter="url(#edgeGlow)"/>
+                                {/* Main line */}
+                                <line x1={s.x} y1={s.y} x2={t.x} y2={t.y}
+                                    stroke={edgeColor}
+                                    strokeWidth={isRelated ? 2.5 : 1.2}
+                                    opacity={isRelated ? 0.9 : 0.5}
+                                    strokeDasharray={isSuspicious ? '8 5' : 'none'}
+                                    style={isSuspicious ? {animation:'flowDash 1s linear infinite'} : {}}
+                                />
+                                {/* Travelling particle on focused edges */}
+                                {isRelated && (
+                                    <circle r="3" fill={edgeColor} filter="url(#glowSm)">
+                                        <animateMotion dur="1.5s" repeatCount="indefinite" path={`M${s.x},${s.y} L${t.x},${t.y}`}/>
+                                    </circle>
+                                )}
+                            </g>
+                        );
+                    })}
+
+                    {/* ── NODES ── solid fills, always labeled */}
+                    {positions.map(node => {
+                        const typeKey = (node.type || 'default').toLowerCase();
+                        const color = NODE_COLORS[typeKey] || NODE_COLORS.default;
+                        const risk = node.risk_score || 0;
+                        const r = Math.max(8, Math.min(20, risk * 22));
+                        const isHovered = hoveredNode === node.id;
+                        const isSelected = selectedNode === node.id;
+                        const isHighRisk = risk >= 0.7;
+                        const dimmed = activeConnectedSet && !activeConnectedSet.has(node.id);
+
+                        return (
+                            <g key={node.id}
+                                onMouseEnter={() => setHoveredNode(node.id)}
+                                onMouseLeave={() => setHoveredNode(null)}
+                                onClick={(e) => { e.stopPropagation(); setSelectedNode(isSelected ? null : node.id); }}
+                                style={{ cursor: 'pointer' }}
+                                opacity={dimmed ? 0.12 : 1}>
+                                {/* Pulse ring for high risk */}
+                                {isHighRisk && !dimmed && (
+                                    <circle cx={node.x} cy={node.y} r={r*2.5} fill="none" stroke={color} strokeWidth="1" opacity="0.25"
+                                        style={{animation:'pulseRing 2s ease-in-out infinite', transformOrigin:`${node.x}px ${node.y}px`}}/>
+                                )}
+                                {/* Outer glow */}
+                                <circle cx={node.x} cy={node.y} r={r*1.6 + (isHovered||isSelected ? 8 : 0)} fill={color} opacity={0.15} filter="url(#glowSm)"/>
+                                {/* Filled circle */}
+                                <circle cx={node.x} cy={node.y} r={r + (isHovered||isSelected ? 4 : 0)}
+                                    fill={color} fillOpacity={0.35} stroke={color} strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1} strokeOpacity={0.9}/>
+                                {/* Bright core */}
+                                <circle cx={node.x} cy={node.y} r={r*0.45} fill={color} opacity={0.95}/>
+                                {/* Center dot */}
+                                <circle cx={node.x} cy={node.y} r={1.5} fill="white" opacity="0.9"/>
+                                {/* Label — always shown */}
+                                <text x={node.x} y={node.y - r - 8} textAnchor="middle" fill="white" fontSize="9" fontFamily="'Inter',monospace"
+                                    fontWeight={isHovered||isSelected ? '700' : '400'} opacity={dimmed ? 0.3 : (isHovered||isSelected ? 1 : 0.7)}
+                                    style={{textShadow:'0 1px 6px rgba(0,0,0,0.9)', pointerEvents:'none'}}>
+                                    {node.name || node.id}
                                 </text>
-                            )}
-                        </g>
-                    );
-                })}
-            </svg>
+                                {/* Type label below */}
+                                {(isHovered||isSelected) && (
+                                    <text x={node.x} y={node.y + r + 14} textAnchor="middle" fill={color} fontSize="8" fontFamily="monospace" opacity="0.7">
+                                        {node.type?.toUpperCase()} • {(risk*100).toFixed(0)}%
+                                    </text>
+                                )}
+                            </g>
+                        );
+                    })}
+                </svg>
+            )}
 
             {/* Tooltip */}
             {hoveredNode && (() => {
                 const node = posMap[hoveredNode];
                 if (!node) return null;
+                const typeKey = (node.type||'default').toLowerCase();
+                const color = NODE_COLORS[typeKey] || NODE_COLORS.default;
                 return (
-                    <div className="absolute pointer-events-none rounded-xl p-3 border text-xs space-y-1"
+                    <div className="absolute pointer-events-none rounded-xl p-3 border text-xs space-y-1 backdrop-blur-sm"
                         style={{
-                            left: Math.min(node.x + 15, dimensions.width - 200),
-                            top: node.y + 15,
-                            background: '#0e1117',
-                            borderColor: CARD_BORDER,
+                            left: Math.min(node.x + 15, dimensions.width - 220),
+                            top: Math.max(10, node.y - 30),
+                            background: 'rgba(10,15,25,0.9)',
+                            borderColor: `${color}40`,
+                            boxShadow: `0 0 20px ${color}15`,
                             zIndex: 10,
                         }}>
-                        <p className="font-bold text-white">{node.label || node.id}</p>
-                        <p className="text-slate-400">Type: <span className="text-slate-200">{node.type || '—'}</span></p>
-                        <p className="text-slate-400">Risk: <span className="font-mono" style={{ color: RISK[riskLevel(node.risk_score || 0)]?.color }}>
+                        <p className="font-bold text-white">{node.name || node.id}</p>
+                        <p className="text-slate-400">Type: <span className="capitalize" style={{color}}>{node.type || '—'}</span></p>
+                        <p className="text-slate-400">Risk: <span className="font-mono font-bold" style={{ color: RISK[riskLevel(node.risk_score || 0)]?.color }}>
                             {typeof node.risk_score === 'number' ? (node.risk_score * 100).toFixed(0) + '%' : '—'}
                         </span></p>
                     </div>
@@ -237,15 +300,15 @@ function ForceGraph({ nodes, edges }) {
             })()}
 
             {/* Legend */}
-            <div className="absolute bottom-3 left-3 flex gap-3 text-xs text-slate-500">
+            <div className="absolute bottom-3 left-3 flex gap-3 text-xs text-slate-500 bg-black/30 backdrop-blur-sm rounded-lg px-3 py-2 border" style={{borderColor:'rgba(255,255,255,0.05)'}}>
                 {Object.entries(NODE_COLORS).filter(([k]) => k !== 'default').map(([type, color]) => (
                     <div key={type} className="flex items-center gap-1.5">
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                        <div className="w-2 h-2 rounded-full" style={{ background: color, boxShadow:`0 0 6px ${color}` }} />
                         <span className="capitalize">{type}</span>
                     </div>
                 ))}
                 <div className="flex items-center gap-1.5 ml-2">
-                    <div className="w-4 h-0.5 bg-red-500" />
+                    <div className="w-4 h-0.5 rounded" style={{background:'#ef4444',boxShadow:'0 0 6px #ef4444'}} />
                     <span>Suspicious</span>
                 </div>
             </div>
@@ -316,43 +379,40 @@ function PathsTable({ paths }) {
                                 </tr>
                                 {isExpanded && (
                                     <tr>
-                                        <td colSpan={5} className="px-5 py-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
-                                            <div className="space-y-2">
-                                                <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">Path Details</p>
-                                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                                    <div>
-                                                        <span className="text-slate-500">Total Risk Score: </span>
-                                                        <span className="font-mono text-slate-200">
-                                                            {(p.total_risk_score || p.risk_score || 0).toFixed(3)}
-                                                        </span>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-slate-500">Path Length: </span>
-                                                        <span className="font-mono text-slate-200">{pathNodes.length} nodes</span>
-                                                    </div>
-                                                    {p.description && (
-                                                        <div className="col-span-2">
-                                                            <span className="text-slate-500">Description: </span>
-                                                            <span className="text-slate-300">{p.description}</span>
-                                                        </div>
-                                                    )}
+                                        <td colSpan="4" className="px-8 py-5 bg-white/[0.01] border-t" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                                            <div className="space-y-4">
+                                                <div className="flex flex-col gap-2">
+                                                    <p className="text-xs text-slate-500 uppercase tracking-wider">Threat Description</p>
+                                                    <p className="text-sm text-slate-300 leading-relaxed max-w-2xl">{desc}</p>
                                                 </div>
-                                                <div className="flex items-center gap-2 pt-2">
-                                                    {pathNodes.map((n, j) => {
-                                                        const nodeLabel = typeof n === 'string' ? n : n.label || n.id || '?';
-                                                        const nodeType = typeof n === 'object' ? (n.type || '').toLowerCase() : '';
-                                                        const color = NODE_COLORS[nodeType] || NODE_COLORS.default;
-                                                        return (
-                                                            <React.Fragment key={j}>
-                                                                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs"
-                                                                    style={{ borderColor: `${color}40`, background: `${color}10` }}>
-                                                                    <Circle className="h-2.5 w-2.5" style={{ color, fill: color }} />
-                                                                    <span className="font-mono text-slate-200">{nodeLabel}</span>
-                                                                </div>
-                                                                {j < pathNodes.length - 1 && <Minus className="h-3 w-3 text-slate-600" />}
-                                                            </React.Fragment>
-                                                        );
-                                                    })}
+                                                <div className="flex flex-col gap-3">
+                                                    <p className="text-xs text-slate-500 uppercase tracking-wider">Attack Chain</p>
+                                                    <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+                                                        {pathNodes.map((n, j) => {
+                                                            const nodeName = typeof n === 'string' ? n : (n.name || n.id || 'Unknown');
+                                                            const nodeType = (typeof n === 'object' ? n.label || n.type || '' : '').toLowerCase();
+                                                            const color = NODE_COLORS[nodeType] || NODE_COLORS.default;
+                                                            return (
+                                                                <React.Fragment key={j}>
+                                                                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border shrink-0"
+                                                                        style={{ borderColor: `${color}30`, background: `${color}08` }}>
+                                                                        <div className="p-1 rounded-md" style={{ background: `${color}20` }}>
+                                                                            <Circle className="h-3 w-3" style={{ color }} />
+                                                                        </div>
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-[10px] text-slate-500 leading-none mb-0.5">{typeof n === 'object' ? n.label || 'Node' : 'Node'}</span>
+                                                                            <span className="text-xs font-mono text-slate-200">{nodeName}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    {j < pathNodes.length - 1 && (
+                                                                        <div className="flex flex-col items-center shrink-0">
+                                                                            <Minus className="h-4 w-8 text-slate-700" />
+                                                                        </div>
+                                                                    )}
+                                                                </React.Fragment>
+                                                            );
+                                                        })}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </td>
@@ -386,7 +446,15 @@ export default function AttackGraph() {
             ]);
 
             if (summaryRes.status === 'fulfilled' && summaryRes.value.ok) {
-                setSummary(await summaryRes.value.json());
+                const s = await summaryRes.value.json();
+                const nc = s.node_counts || {};
+                const ec = s.edge_counts || {};
+                setSummary({
+                    total_nodes: Object.values(nc).reduce((a,b)=>a+b, 0),
+                    total_edges: Object.values(ec).reduce((a,b)=>a+b, 0),
+                    suspicious_edges: ec['SUSPICIOUS_CONNECTION'] || 0,
+                    top_risky: s.top_risky_entities || [],
+                });
             }
             if (graphRes.status === 'fulfilled' && graphRes.value.ok) {
                 setGraphData(await graphRes.value.json());
@@ -411,6 +479,11 @@ export default function AttackGraph() {
     const riskyNodes = useMemo(() => {
         if (!graphData.nodes) return [];
         return [...graphData.nodes]
+            .map(n => ({
+                ...n,
+                type: (n.type || n.label || 'default').toLowerCase(),
+                displayName: n.name || n.label || n.id || 'Unknown'
+            }))
             .filter(n => typeof n.risk_score === 'number')
             .sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0))
             .slice(0, 15);
@@ -439,9 +512,9 @@ export default function AttackGraph() {
             <div className="grid grid-cols-4 gap-4">
                 {[
                     { label: 'Total Nodes', value: summary.total_nodes || graphData.nodes?.length || 0, color: '#3b82f6', icon: <Circle className="h-5 w-5" /> },
-                    { label: 'Total Edges', value: summary.total_edges || graphData.edges?.length || 0, color: '#64748b', icon: <Minus className="h-5 w-5" /> },
-                    { label: 'High Risk Nodes', value: summary.high_risk_nodes || 0, color: '#ef4444', icon: <AlertTriangle className="h-5 w-5" /> },
-                    { label: 'Attack Paths Found', value: summary.attack_paths_found || paths.length || 0, color: '#f59e0b', icon: <GitBranch className="h-5 w-5" /> },
+                    { label: 'Total Edges', value: summary.total_edges || graphData.edges?.length || 0, color: '#a78bfa', icon: <Minus className="h-5 w-5" /> },
+                    { label: 'Suspicious Links', value: summary.suspicious_edges || 0, color: '#ef4444', icon: <AlertTriangle className="h-5 w-5" /> },
+                    { label: 'Attack Paths', value: (Array.isArray(paths) ? paths : paths.paths || []).length, color: '#f59e0b', icon: <GitBranch className="h-5 w-5" /> },
                 ].map(c => (
                     <div key={c.label} className="rounded-2xl p-5 border" style={{ background: CARD_BG, borderColor: CARD_BORDER }}>
                         <div className="flex items-center justify-between mb-3">
@@ -509,8 +582,8 @@ export default function AttackGraph() {
                                         style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
                                         <div className="w-2 h-2 rounded-full shrink-0" style={{ background: nodeColor }} />
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-mono text-slate-200 truncate">{node.label || node.id}</p>
-                                            <p className="text-[10px] text-slate-500 capitalize">{node.type || '—'}</p>
+                                            <p className="text-xs font-mono text-slate-200 truncate">{node.displayName}</p>
+                                            <p className="text-[10px] text-slate-500 capitalize">{node.type}</p>
                                         </div>
                                         <span className="text-xs font-mono shrink-0" style={{ color: r.color }}>
                                             {(node.risk_score * 100).toFixed(0)}%

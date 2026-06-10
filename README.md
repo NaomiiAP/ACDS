@@ -20,9 +20,10 @@
    - [7.1 Using `open_terminals.sh` (Recommended)](#71-using-open_terminalssh-recommended)
    - [7.2 Manual Step-by-Step](#72-manual-step-by-step)
 8. [Generating Test Traffic](#8-generating-test-traffic)
-9. [Accessing the UI & Services](#9-accessing-the-ui--services)
-10. [Stopping the Stack](#10-stopping-the-stack)
-11. [Troubleshooting](#11-troubleshooting)
+9. [Simulating Attacks (Attack Graph)](#9-simulating-attacks-attack-graph)
+10. [Accessing the UI & Services](#10-accessing-the-ui--services)
+11. [Stopping the Stack](#11-stopping-the-stack)
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 

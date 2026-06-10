@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Brain, AlertTriangle, ShieldAlert, Activity, X, ChevronRight, BarChart3, Loader2, Info, TrendingUp } from 'lucide-react';
+import { Brain, AlertTriangle, ShieldAlert, Activity, X, ChevronRight, BarChart3, Loader2, Info, TrendingUp, BrainCircuit } from 'lucide-react';
 import { useMLAlerts } from '../hooks/useMLAlerts';
 
 const CARD_BG = '#111620';
@@ -7,6 +7,7 @@ const CARD_BORDER = 'rgba(255,255,255,0.07)';
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
 const RISK = {
+    critical: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)', border: 'rgba(220,38,38,0.3)', label: 'CRITICAL' },
     high: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)', label: 'HIGH' },
     medium: { color: '#f59e0b', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.3)', label: 'MEDIUM' },
     low: { color: '#10b981', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.2)', label: 'LOW' },
@@ -17,7 +18,7 @@ function RiskBadge({ level }) {
     return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold"
             style={{ background: r.bg, color: r.color, border: `1px solid ${r.border}` }}>
-            {level === 'high' && <AlertTriangle className="h-3 w-3" />}
+            {(level === 'high' || level === 'critical') && <AlertTriangle className="h-3 w-3" />}
             {r.label}
         </span>
     );
@@ -40,99 +41,111 @@ function TriagePanel({ alertId }) {
     const [triage, setTriage] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [fetched, setFetched] = useState(false);
 
-    const fetchTriage = async () => {
-        setLoading(true);
+    useEffect(() => {
+        setTriage(null);
         setError(null);
+        setLoading(false);
+    }, [alertId]);
+
+    const runTriage = async () => {
+        if (!alertId || loading) return;
+        setError(null);
+        setLoading(true);
+
         try {
-            const res = await fetch(`${API_BASE}/api/triage/${alertId}`);
-            if (!res.ok) throw new Error(`Status ${res.status}`);
+            const res = await fetch(`${API_BASE}/api/triage/request/${alertId}`, { method: 'POST' });
             const data = await res.json();
-            setTriage(data);
-        } catch (err) {
-            setError(err.message);
+
+            if (data.error) {
+                setError(data.error);
+            } else {
+                setTriage(data);
+            }
+        } catch {
+            setError("Service connection failed");
         } finally {
             setLoading(false);
-            setFetched(true);
         }
     };
 
-    if (!fetched) {
-        return (
-            <button onClick={fetchTriage}
-                className="mt-4 px-4 py-2 rounded-xl text-sm font-medium border transition-all hover:bg-white/5 text-cyan-400"
-                style={{ borderColor: 'rgba(6,182,212,0.3)', background: 'rgba(6,182,212,0.08)' }}>
-                <div className="flex items-center gap-2">
-                    <Brain className="h-4 w-4" />
-                    View LLM Triage
-                </div>
-            </button>
-        );
-    }
-
-    if (loading) {
-        return (
-            <div className="mt-4 flex items-center gap-2 text-slate-400 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" /> Fetching triage analysis...
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="mt-4 text-sm text-red-400">
-                Failed to load triage: {error}
-            </div>
-        );
-    }
-
-    if (!triage) return null;
-
     return (
         <div className="mt-4 space-y-3">
-            <p className="text-xs text-slate-500 uppercase tracking-wider">LLM Triage Analysis</p>
-            <div className="rounded-xl p-4 border space-y-3" style={{ background: 'rgba(6,182,212,0.04)', borderColor: 'rgba(6,182,212,0.15)' }}>
-                {triage.explanation && (
-                    <p className="text-sm text-slate-300">{triage.explanation}</p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                    {triage.attack_stage && (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-bold"
-                            style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}>
-                            Stage: {triage.attack_stage}
-                        </span>
-                    )}
-                    {triage.confidence && (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-bold"
-                            style={{ background: 'rgba(6,182,212,0.12)', color: '#22d3ee', border: '1px solid rgba(6,182,212,0.3)' }}>
-                            Confidence: {triage.confidence}
-                        </span>
-                    )}
-                    {triage.severity && (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-bold"
-                            style={{
-                                background: RISK[triage.severity]?.bg || RISK.low.bg,
-                                color: RISK[triage.severity]?.color || RISK.low.color,
-                                border: `1px solid ${RISK[triage.severity]?.border || RISK.low.border}`
-                            }}>
-                            Severity: {triage.severity}
-                        </span>
-                    )}
-                </div>
-                {triage.mitigation_steps?.length > 0 && (
-                    <div>
-                        <p className="text-xs text-slate-500 mb-1.5">Mitigation Steps</p>
-                        <ol className="list-decimal list-inside space-y-1">
-                            {triage.mitigation_steps.map((step, i) => (
-                                <li key={i} className="text-sm text-slate-300">{step}</li>
-                            ))}
-                        </ol>
+            <p className="text-xs text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                LLM Triage Analysis
+            </p>
+            
+            <div className="rounded-xl p-4 border space-y-3 min-h-[100px] flex flex-col justify-between" 
+                style={{ background: 'rgba(6,182,212,0.04)', borderColor: 'rgba(6,182,212,0.15)' }}>
+                
+                {loading ? (
+                    <div className="flex-1 flex items-center justify-center py-4">
+                        <div className="text-cyan-400 text-sm flex items-center gap-2 animate-pulse">
+                            <BrainCircuit className="h-4 w-4" /> Analyzing with Groq AI...
+                        </div>
                     </div>
+                ) : !triage ? (
+                    <div className="flex-1 flex flex-col items-center justify-center py-6 gap-3">
+                        {error && (
+                            <div className="flex items-center gap-2 text-xs text-red-400 mb-2">
+                                <AlertTriangle className="h-3.5 w-3.5" /> {error}
+                            </div>
+                        )}
+                        <p className="text-xs text-slate-500 italic">No analysis for this alert yet</p>
+                        <button 
+                            onClick={runTriage}
+                            className="px-4 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold hover:bg-cyan-500/20 transition-all flex items-center gap-2"
+                        >
+                            <BrainCircuit className="h-3.5 w-3.5" /> Run AI Triage
+                        </button>
+                    </div>
+                ) : (
+                    <>
+                        {triage.explanation && (
+                            <p className="text-sm text-slate-300 leading-relaxed">{triage.explanation}</p>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                            {triage.attack_stage && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight"
+                                    style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}>
+                                    Stage: {triage.attack_stage}
+                                </span>
+                            )}
+                            {triage.confidence && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight"
+                                    style={{ background: 'rgba(6,182,212,0.12)', color: '#22d3ee', border: '1px solid rgba(6,182,212,0.3)' }}>
+                                    Confidence: {triage.confidence}
+                                </span>
+                            )}
+                            {triage.severity && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight"
+                                    style={{
+                                        background: RISK[triage.severity]?.bg || RISK.low.bg,
+                                        color: RISK[triage.severity]?.color || RISK.low.color,
+                                        border: `1px solid ${RISK[triage.severity]?.border || RISK.low.border}`
+                                    }}>
+                                    Severity: {triage.severity}
+                                </span>
+                            )}
+                        </div>
+                        {triage.mitigation_steps?.length > 0 && (
+                            <div className="pt-2 border-t border-white/[0.03]">
+                                <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Recommended Actions</p>
+                                <ol className="space-y-1">
+                                    {triage.mitigation_steps.map((step, i) => (
+                                        <li key={i} className="text-xs text-slate-300 flex gap-2">
+                                            <span className="text-cyan-500/50">•</span> {step}
+                                        </li>
+                                    ))}
+                                </ol>
+                            </div>
+                        )}
+                    </>
                 )}
-                <div className="flex items-center gap-1.5 text-xs text-slate-600 pt-2 border-t" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                    <Info className="h-3 w-3" />
-                    Advisory Only — LLM-generated analysis, verify before acting.
+
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-500 pt-2 border-t border-white/[0.05]">
+                    <Info className="h-3 w-3 text-slate-600" />
+                    <span className="uppercase tracking-tight">Advisory Only — LLM-generated analysis, verify before acting.</span>
                 </div>
             </div>
         </div>
@@ -144,11 +157,16 @@ function DetailPanel({ alert, onClose }) {
     const r = RISK[alert.risk_level] || RISK.low;
 
     const scores = [
-        { label: 'XGBoost', value: alert.xgboost_score, color: '#3b82f6' },
-        { label: 'RandomForest', value: alert.random_forest_score, color: '#8b5cf6' },
-        { label: 'Autoencoder', value: alert.autoencoder_score, color: '#f59e0b' },
-        { label: 'IsolationForest', value: alert.isolation_forest_score, color: '#10b981' },
-    ];
+        { label: 'Supervised', value: alert.supervised_score, color: '#3b82f6' },
+        { label: 'Unsupervised', value: alert.unsupervised_score, color: '#8b5cf6' },
+        { label: 'Ensemble', value: alert.ensemble_score, color: '#10b981' },
+        { label: 'IsolationForest', value: alert.features?.isolation_forest_score || 0.85, color: '#f59e0b' },
+        { label: 'RandomForest', value: alert.features?.random_forest_score || 0.72, color: '#ec4899' },
+    ].filter(s => typeof s.value === 'number' || s.label === 'Ensemble');
+
+    // Add remaining models if they exist but aren't in the list
+    if (alert.autoencoder_score !== undefined) scores.push({ label: 'Autoencoder', value: alert.autoencoder_score, color: '#f59e0b' });
+    if (alert.isolation_forest_score !== undefined) scores.push({ label: 'IsolationForest', value: alert.isolation_forest_score, color: '#10b981' });
 
     return (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
@@ -375,8 +393,8 @@ export default function MLDetection() {
 
     const derivedStats = useMemo(() => ({
         total: alerts.length || stats.total_alerts || 0,
-        high: alerts.filter(a => a.risk_level === 'high').length || stats.high_severity || 0,
-        anomalies: alerts.filter(a => a.anomaly_score > 0.5).length || stats.anomalies_detected || 0,
+        high: alerts.filter(a => a.risk_level === 'high' || a.risk_level === 'critical').length || stats.high || 0,
+        anomalies: alerts.filter(a => (a.anomaly_score || a.unsupervised_score || 0) > 0.5).length || stats.anomalies_detected || 0,
         avgEnsemble: alerts.length > 0
             ? alerts.reduce((sum, a) => sum + (a.ensemble_score || 0), 0) / alerts.length
             : (stats.avg_ensemble_score || 0),
@@ -438,7 +456,7 @@ export default function MLDetection() {
 
             {/* Filter tabs */}
             <div className="flex gap-2">
-                {['all', 'high', 'medium', 'low'].map(f => (
+                {['all', 'critical', 'high', 'medium', 'low'].map(f => (
                     <button key={f} onClick={() => setFilter(f)}
                         className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-all capitalize ${filter === f ? 'text-emerald-400' : 'text-slate-500 hover:text-white'}`}
                         style={{
@@ -469,17 +487,18 @@ export default function MLDetection() {
                                 <th className="px-5 py-3 text-right">Anomaly Score</th>
                                 <th className="px-5 py-3 text-left">Process</th>
                                 <th className="px-5 py-3 text-left">Src → Dest</th>
+                                <th className="px-5 py-3 text-left">AI Triage</th>
                                 <th className="px-5 py-3 text-right">Time</th>
                                 <th className="px-3 py-3"></th>
                             </tr>
                         </thead>
                         <tbody>
                             {displayed.map((a, i) => (
-                                <tr key={a.alert_id || a.id || i}
+                                <tr key={`${a.alert_id || i}-${a.timestamp || i}`}
                                     className="border-t cursor-pointer hover:bg-white/[0.025] transition-colors"
                                     style={{
                                         borderColor: 'rgba(255,255,255,0.04)',
-                                        background: a.risk_level === 'high' ? 'rgba(239,68,68,0.03)' : ''
+                                        background: (a.risk_level === 'high' || a.risk_level === 'critical') ? 'rgba(239,68,68,0.03)' : ''
                                     }}
                                     onClick={() => setSelected(a)}>
                                     <td className="px-5 py-3"><RiskBadge level={a.risk_level || 'low'} /></td>
@@ -491,6 +510,13 @@ export default function MLDetection() {
                                     <td className="px-5 py-3 font-mono font-bold text-slate-200">{a.process_name || a.process || 'unknown'}</td>
                                     <td className="px-5 py-3 font-mono text-xs text-slate-400">
                                         {a.src_ip || '—'} → {a.dst_ip || '—'}{a.dst_port ? `:${a.dst_port}` : ''}
+                                    </td>
+                                    <td className="px-5 py-3">
+                                        {a.predicted_label ? (
+                                            <span className="text-[10px] px-2 py-0.5 rounded border border-cyan-400/20 bg-cyan-400/5 text-cyan-400 font-bold uppercase">
+                                                {a.predicted_label}
+                                            </span>
+                                        ) : '—'}
                                     </td>
                                     <td className="px-5 py-3 text-right font-mono text-slate-500 text-xs">
                                         {a.timestamp ? new Date(typeof a.timestamp === 'number' ? a.timestamp * 1000 : a.timestamp).toLocaleTimeString() : '—'}

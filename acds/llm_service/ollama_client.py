@@ -11,10 +11,11 @@ import httpx
 log = logging.getLogger("llm_triage.ollama")
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+# Common Docker Desktop for Windows bridge address
+DOCKER_HOST_URL = "http://host.docker.internal:11434"
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
-TIMEOUT_SECONDS = 60
-MAX_RETRIES = 3
-BACKOFF_BASE = 2  # seconds
+TIMEOUT_SECONDS = 30
+MAX_RETRIES = 2
 
 
 class OllamaClient:
@@ -24,6 +25,7 @@ class OllamaClient:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self._client = httpx.AsyncClient(timeout=TIMEOUT_SECONDS)
+        log.info("OllamaClient initialized (URL: %s, Model: %s)", self.base_url, self.model)
 
     async def close(self):
         await self._client.aclose()
@@ -65,11 +67,18 @@ class OllamaClient:
 
     async def is_available(self) -> bool:
         """Check whether the Ollama server is reachable."""
-        try:
-            resp = await self._client.get(f"{self.base_url}/api/tags")
-            return resp.status_code == 200
-        except Exception:
-            return False
+        urls_to_try = [self.base_url, DOCKER_HOST_URL]
+        for url in urls_to_try:
+            try:
+                resp = await self._client.get(f"{url}/api/tags", timeout=2.0)
+                if resp.status_code == 200:
+                    if url != self.base_url:
+                        log.info("Ollama found via Docker host bridge: %s", url)
+                        self.base_url = url
+                    return True
+            except Exception:
+                continue
+        return False
 
     async def list_models(self) -> list:
         """Return a list of models available on the Ollama server."""
