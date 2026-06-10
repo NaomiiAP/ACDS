@@ -14,6 +14,7 @@ function wslBackendHost() {
 
 const backendTarget = process.env.VITE_DEV_BACKEND || wslBackendHost()
 const graphTarget = process.env.VITE_DEV_GRAPH || backendTarget.replace(':8000', ':8100')
+const policyTarget = process.env.VITE_DEV_POLICY || backendTarget.replace(':8000', ':8200')
 
 export default defineConfig({
   plugins: [react()],
@@ -23,6 +24,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api/graph': { target: graphTarget, changeOrigin: true },
+      '/api/policy': { target: policyTarget, changeOrigin: true },
       '/api': { target: backendTarget, changeOrigin: true },
       '/ws': { target: backendTarget, ws: true, changeOrigin: true },
     },

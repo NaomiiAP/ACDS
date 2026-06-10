@@ -85,6 +85,8 @@ echo ""
         wsl.exe bash -lc "cd '${PROJECT_DIR}' && export PYTHONPATH='${PROJECT_DIR}' && echo '=== CORRELATION SERVICE ===' && '${VENV_PY}' acds/correlation_service/correlation_main.py; exec bash" \; \
     new-tab --title "ML Detection" \
         wsl.exe bash -lc "cd '${PROJECT_DIR}' && export PYTHONPATH='${PROJECT_DIR}' && echo '=== ML DETECTION ===' && '${VENV_PY}' acds/ml_service/ml_main.py; exec bash" \; \
+    new-tab --title "Policy Engine" \
+        wsl.exe bash -lc "cd '${PROJECT_DIR}' && export PYTHONPATH='${PROJECT_DIR}' && echo '=== POLICY ENGINE ===' && '${VENV_PY}' acds/policy_service/policy_main.py; exec bash" \; \
     new-tab --title "Graph Service" \
         wsl.exe bash -lc "cd '${PROJECT_DIR}' && export PYTHONPATH='${PROJECT_DIR}' && echo '=== GRAPH SERVICE ===' && '${VENV_PY}' acds/graph_service/graph_main.py; exec bash" \; \
     new-tab --title "Demo Alerts" \

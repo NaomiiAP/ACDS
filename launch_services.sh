@@ -89,29 +89,36 @@ SERVICES_STARTED=$((SERVICES_STARTED + 1))
 # =========== LLM Triage Service (skipped — on-demand via UI button) ===========
 echo "[5/9] LLM Triage Service (skipped — use UI 'Run AI Triage' per alert)..."
 
+# =========== Policy Engine ===========
+echo "[6/10] Policy Engine..."
+(cd "${PROJECT_DIR}" && \
+ "${ACDS_VENV_PY}" acds/policy_service/policy_main.py > "${LOGS_DIR}/policy_service.log" 2>&1) &
+echo "  ↳ PID: $!"
+SERVICES_STARTED=$((SERVICES_STARTED + 1))
+
 # =========== Graph Service ===========
-echo "[6/9] Graph Service..."
+echo "[7/10] Graph Service..."
 (cd "${PROJECT_DIR}" && \
  "${ACDS_VENV_PY}" acds/graph_service/graph_main.py > "${LOGS_DIR}/graph_service.log" 2>&1) &
 echo "  ↳ PID: $!"
 SERVICES_STARTED=$((SERVICES_STARTED + 1))
 
 # =========== Backend API ===========
-echo "[7/9] Backend API (FastAPI)..."
+echo "[8/10] Backend API (FastAPI)..."
 (cd "${PROJECT_DIR}/acds/ui/backend" && \
  "${ACDS_VENV_PY}" -m uvicorn server:app --host 0.0.0.0 --port 8000 > "${LOGS_DIR}/backend_api.log" 2>&1) &
 echo "  ↳ PID: $! - Running on http://localhost:8000"
 SERVICES_STARTED=$((SERVICES_STARTED + 1))
 
 # =========== React Frontend ===========
-echo "[8/9] React Frontend (Vite)..."
+echo "[9/10] React Frontend (Vite)..."
 (cd "${PROJECT_DIR}/acds/ui/frontend" && \
  npm run dev -- --host 0.0.0.0 --port 5173 > "${LOGS_DIR}/frontend.log" 2>&1) &
 echo "  ↳ PID: $! - Running on http://localhost:5173"
 SERVICES_STARTED=$((SERVICES_STARTED + 1))
 
 # =========== Kafka Monitor ===========
-echo "[9/9] Kafka Monitor (monitoring ml.alerts topic)..."
+echo "[10/10] Kafka Monitor (monitoring ml.alerts topic)..."
 (cd "${PROJECT_DIR}" && \
  docker exec telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic ml.alerts 2>/dev/null || \
  docker exec telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic enriched.flows \

@@ -9,3 +9,6 @@ pydantic>=2.3.0
 
 # CORS + JSON support (included via FastAPI but explicit for clarity)
 python-multipart>=0.0.6
+pyyaml>=6.0
+python-dotenv>=1.0.0
+httpx>=0.27.0

@@ -1,0 +1,76 @@
+# ACDS Response & Policy Engine — YAML rules
+# Each rule matches ML alerts and proposes a remediation action.
+
+settings:
+  dry_run: true          # Log actions only; set false + ENFORCE=true for real iptables
+  max_actions_per_minute: 10
+  default_require_approval: true
+
+rules:
+  - id: block_critical_external
+    description: Block external destination IPs on critical ML alerts
+    enabled: true
+    match:
+      min_ensemble_score: 0.85
+      risk_levels: [critical, high]
+      labels: [PortScan, DDoS, C2, Exfiltration, BruteForce]
+    action: block_ip
+    target: dst_ip
+    auto_execute: false
+    require_approval: true
+
+  - id: auto_isolate_lateral
+    description: Auto-isolate process on lateral movement / infiltration
+    enabled: true
+    match:
+      min_ensemble_score: 0.80
+      labels: [Infiltration]
+    action: isolate_process
+    target: process
+    auto_execute: true
+    require_approval: false
+
+  - id: auto_isolate_portscan
+    description: Auto-isolate aggressive port scanners
+    enabled: true
+    match:
+      min_ensemble_score: 0.88
+      labels: [PortScan]
+    action: isolate_process
+    target: process
+    auto_execute: true
+    require_approval: false
+
+  - id: block_bruteforce_ssh
+    description: Block source targeting SSH brute-force patterns
+    enabled: true
+    match:
+      min_ensemble_score: 0.75
+      labels: [BruteForce]
+      dst_ports: [22]
+    action: block_ip
+    target: dst_ip
+    auto_execute: false
+    require_approval: true
+
+  - id: throttle_ddos
+    description: Rate-limit flood sources (advisory throttle)
+    enabled: true
+    match:
+      min_ensemble_score: 0.90
+      labels: [DDoS]
+    action: throttle
+    target: src_ip
+    auto_execute: true
+    require_approval: false
+
+  - id: alert_only_medium
+    description: Log medium-risk alerts for analyst review
+    enabled: true
+    match:
+      min_ensemble_score: 0.50
+      max_ensemble_score: 0.70
+    action: alert_only
+    target: process
+    auto_execute: true
+    require_approval: false

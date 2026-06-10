@@ -9,6 +9,7 @@ cat > "${ENV_FILE}" <<EOF
 VITE_API_BASE=http://${WSL_IP}:8000
 VITE_WS_URL=ws://${WSL_IP}:8000/ws/telemetry
 VITE_GRAPH_API=http://${WSL_IP}:8100
+VITE_POLICY_API=http://${WSL_IP}:8200
 EOF
 
-echo "Wrote ${ENV_FILE} (API → http://${WSL_IP}:8000, Graph → http://${WSL_IP}:8100)"
+echo "Wrote ${ENV_FILE} (API → http://${WSL_IP}:8000, Graph → http://${WSL_IP}:8100, Policy → http://${WSL_IP}:8200)"

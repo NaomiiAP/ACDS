@@ -6,7 +6,8 @@ import time
 from collections import deque, Counter
 from contextlib import asynccontextmanager
 
-from aiokafka import AIOKafkaConsumer
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
@@ -36,6 +37,9 @@ KAFKA_TOPIC             = os.getenv("KAFKA_TOPIC", "telemetry.raw")
 KAFKA_ENRICHED_TOPIC    = os.getenv("KAFKA_ENRICHED_TOPIC", "enriched.flows")
 KAFKA_ML_ALERTS_TOPIC   = os.getenv("KAFKA_ML_ALERTS_TOPIC", "ml.alerts")
 KAFKA_TRIAGE_TOPIC      = os.getenv("KAFKA_TRIAGE_TOPIC", "triage.results")
+KAFKA_POLICY_TOPIC      = os.getenv("KAFKA_POLICY_TOPIC", "policy.actions")
+KAFKA_POLICY_COMMANDS   = os.getenv("KAFKA_POLICY_COMMANDS", "policy.commands")
+POLICIES_YAML           = root_path / "acds" / "policy_service" / "policies.yaml"
 MAX_EVENTS              = 10000
 MAX_THREATS             = 2000
 
@@ -44,10 +48,12 @@ event_buffer  = deque(maxlen=MAX_EVENTS)
 threat_buffer = deque(maxlen=MAX_THREATS)  # enriched.flows events
 ml_alert_buffer = deque(maxlen=2000)
 triage_buffer   = deque(maxlen=1000)
+policy_buffer   = deque(maxlen=1000)
 active_connections:        list[WebSocket] = []
 threat_connections:        list[WebSocket] = []
 ml_connections:            list[WebSocket] = []
 triage_connections:        list[WebSocket] = []
+policy_connections:        list[WebSocket] = []
 
 status = {
     "kafka_connected":          False,
@@ -57,7 +63,11 @@ status = {
     "total_threats":            0,
     "total_ml_alerts":          0,
     "total_triage":             0,
+    "total_policy_actions":     0,
+    "policy_kafka_connected":   False,
 }
+
+_policy_producer: AIOKafkaProducer | None = None
 
 # AI Engine (On-Demand — one Groq request at a time to avoid rate limits)
 llm_client = GroqClient()
@@ -215,17 +225,72 @@ async def consume_triage():
             await consumer.stop()
 
 
+async def consume_policy_actions():
+    """Consume policy.actions → buffer and broadcast to /ws/policy."""
+    consumer = AIOKafkaConsumer(
+        KAFKA_POLICY_TOPIC,
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        group_id="policy_ui_backend",
+        auto_offset_reset="earliest",
+    )
+    while True:
+        try:
+            await consumer.start()
+            logger.info(f"Policy consumer connected: {KAFKA_POLICY_TOPIC}")
+            status["policy_kafka_connected"] = True
+
+            async for msg in consumer:
+                try:
+                    event = json.loads(msg.value.decode("utf-8"))
+                    # Upsert by action_id so approve/reject updates replace old entry
+                    aid = event.get("action_id")
+                    if aid:
+                        policy_buffer[:] = [a for a in policy_buffer if a.get("action_id") != aid]
+                    policy_buffer.append(event)
+                    status["total_policy_actions"] = len(policy_buffer)
+
+                    payload = json.dumps({"type": "policy_action", "data": event})
+                    for ws in list(policy_connections):
+                        try:
+                            await ws.send_text(payload)
+                        except Exception:
+                            pass
+                except json.JSONDecodeError:
+                    logger.error("Failed to parse policy action message")
+
+        except Exception as e:
+            logger.error(f"Policy Kafka error: {e}. Retrying in 5s...")
+            status["policy_kafka_connected"] = False
+            await asyncio.sleep(5)
+        finally:
+            await consumer.stop()
+
+
+async def _publish_policy_command(command: dict):
+    global _policy_producer
+    if _policy_producer is None:
+        _policy_producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
+        await _policy_producer.start()
+    payload = json.dumps(command).encode("utf-8")
+    await _policy_producer.send_and_wait(KAFKA_POLICY_COMMANDS, payload)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     t1 = asyncio.create_task(consume_telemetry())
     t2 = asyncio.create_task(consume_enriched())
     t3 = asyncio.create_task(consume_ml_alerts())
     t4 = asyncio.create_task(consume_triage())
+    t5 = asyncio.create_task(consume_policy_actions())
     yield
     t1.cancel()
     t2.cancel()
     t3.cancel()
     t4.cancel()
+    t5.cancel()
+    global _policy_producer
+    if _policy_producer is not None:
+        await _policy_producer.stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -326,6 +391,7 @@ async def get_ml_alerts(limit: int = 100, min_score: float = 0.0):
     alerts = list(ml_alert_buffer)[-limit:]
     if min_score > 0:
         alerts = [a for a in alerts if a.get("ensemble_score", 0) >= min_score]
+    alerts.reverse()
     return alerts
 
 
@@ -433,6 +499,66 @@ async def request_triage(alert_id: str):
             return {"error": str(e)}
 
 
+@app.get("/api/policy/actions")
+async def get_policy_actions(limit: int = 100, status_filter: str = ""):
+    actions = list(policy_buffer)[-limit:]
+    actions.reverse()
+    if status_filter:
+        actions = [a for a in actions if a.get("status") == status_filter]
+    pending = sum(1 for a in policy_buffer if a.get("status") == "pending")
+    executed = sum(1 for a in policy_buffer if a.get("status") == "executed")
+    return {
+        "actions": actions,
+        "count": len(actions),
+        "pending": pending,
+        "executed": executed,
+    }
+
+
+@app.get("/api/policy/rules")
+async def get_policy_rules():
+    if not POLICIES_YAML.exists():
+        return {"error": "policies.yaml not found", "rules": []}
+    with open(POLICIES_YAML, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return {"rules": data.get("rules", []), "settings": data.get("settings", {})}
+
+
+@app.get("/api/policy/summary")
+async def get_policy_summary():
+    actions = list(policy_buffer)
+    return {
+        "total_actions": len(actions),
+        "pending_approvals": sum(1 for a in actions if a.get("status") == "pending"),
+        "executed": sum(1 for a in actions if a.get("status") == "executed"),
+        "rejected": sum(1 for a in actions if a.get("status") == "rejected"),
+        "policy_kafka_connected": status.get("policy_kafka_connected", False),
+    }
+
+
+@app.post("/api/policy/actions/{action_id}/approve")
+async def approve_policy_action(action_id: str):
+    await _publish_policy_command({"action_id": action_id, "command": "approve", "by": "ui_analyst"})
+    return {"ok": True, "action_id": action_id, "message": "Approval sent to policy engine"}
+
+
+@app.post("/api/policy/actions/{action_id}/reject")
+async def reject_policy_action(action_id: str, reason: str = ""):
+    await _publish_policy_command({
+        "action_id": action_id,
+        "command": "reject",
+        "by": "ui_analyst",
+        "reason": reason,
+    })
+    return {"ok": True, "action_id": action_id, "message": "Rejection sent to policy engine"}
+
+
+@app.post("/api/policy/actions/{action_id}/rollback")
+async def rollback_policy_action(action_id: str):
+    await _publish_policy_command({"action_id": action_id, "command": "rollback", "by": "ui_analyst"})
+    return {"ok": True, "action_id": action_id, "message": "Rollback sent to policy engine"}
+
+
 # ── WebSocket Routes ───────────────────────────────────────────────────────────
 
 @app.websocket("/ws/telemetry")
@@ -479,6 +605,21 @@ async def ws_ml_alerts(websocket: WebSocket):
     except WebSocketDisconnect:
         if websocket in ml_connections:
             ml_connections.remove(websocket)
+
+
+@app.websocket("/ws/policy")
+async def ws_policy(websocket: WebSocket):
+    """WebSocket for real-time policy actions."""
+    await websocket.accept()
+    policy_connections.append(websocket)
+    try:
+        for a in list(policy_buffer)[-50:]:
+            await websocket.send_text(json.dumps({"type": "policy_action", "data": a}))
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        if websocket in policy_connections:
+            policy_connections.remove(websocket)
 
 
 @app.websocket("/ws/triage")

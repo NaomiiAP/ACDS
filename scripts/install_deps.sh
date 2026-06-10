@@ -43,15 +43,18 @@ pip install -r "${PROJECT_DIR}/dpi_service/requirements.txt"
 echo "[4/7] Graph Service..."
 pip install -r "${PROJECT_DIR}/acds/graph_service/requirements.txt"
 
-echo "[5/7] LLM Service..."
+echo "[5/8] LLM Service..."
 pip install -r "${PROJECT_DIR}/acds/llm_service/requirements.txt"
 
-echo "[6/7] Telemetry agent - Kafka + schema, bcc from apt..."
+echo "[6/8] Policy Engine..."
+pip install -r "${PROJECT_DIR}/acds/policy_service/requirements.txt"
+
+echo "[7/8] Telemetry agent - Kafka + schema, bcc from apt..."
 pip install "confluent-kafka>=2.3.0" "jsonschema>=4.0.0"
 # System Python runs the eBPF agent; install Kafka deps for /usr/bin/python3 too
 pip3 install --user "confluent-kafka>=2.3.0" "jsonschema>=4.0.0" 2>/dev/null || true
 
-echo "[7/7] ML Service - may take a few minutes..."
+echo "[8/8] ML Service - may take a few minutes..."
 pip install -r "${PROJECT_DIR}/acds/ml_service/requirements.txt"
 
 pip install python-dotenv

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Shield, Bell, Settings as SettingsIcon, X, CheckCircle, AlertCircle, Brain, GitBranch } from 'lucide-react';
+import { Shield, Bell, Settings as SettingsIcon, X, CheckCircle, AlertCircle, GitBranch } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import LiveStream from './pages/LiveStream';
 import Hosts from './pages/Hosts';
@@ -8,6 +8,7 @@ import SettingsPage from './pages/Settings';
 import Threats from './pages/Threats';
 import MLDetection from './pages/MLDetection';
 import AttackGraph from './pages/AttackGraph';
+import Policy from './pages/Policy';
 import { useTelemetry } from './hooks/useTelemetry';
 import { TelemetryContext } from './context/TelemetryContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { to: '/threats', label: 'Threats' },
   { to: '/ml', label: 'ML Detection' },
   { to: '/graph', label: 'Attack Graph' },
+  { to: '/policy', label: 'Policy' },
   { to: '/settings', label: 'Settings' },
 ];
 
@@ -219,6 +221,7 @@ function App() {
             <Route path="/threats" element={<Threats />} />
             <Route path="/ml" element={<MLDetection />} />
             <Route path="/graph" element={<AttackGraph />} />
+            <Route path="/policy" element={<Policy />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </AppLayout>
