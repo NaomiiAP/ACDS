@@ -16,9 +16,13 @@ import signal
 import sys
 import time
 import uuid
+from dotenv import load_dotenv
+
+# Load .env file at startup
+load_dotenv()
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from acds.llm_service.ollama_client import OllamaClient
+from acds.llm_service.groq_client import GroqClient
 from acds.llm_service.prompt_templates import build_prompt
 from acds.llm_service.triage_formatter import parse_llm_output
 
@@ -33,20 +37,22 @@ KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC_ML_ALERTS = "ml.alerts"
 TOPIC_TRIAGE = "triage.results"
 ENSEMBLE_THRESHOLD = 0.5
+# Auto-triage is off by default — use the UI "Run AI Triage" button per alert instead.
+AUTO_TRIAGE = os.getenv("AUTO_TRIAGE", "false").lower() in ("1", "true", "yes")
 
 # Shared Kafka producer (set in main)
 _producer = None
-_ollama = None
+_llm = None
 
 
 async def ingest_alerts():
-    """Consume ml.alerts, triage qualifying alerts via Ollama, publish results."""
-    global _producer, _ollama
+    """Consume ml.alerts, triage qualifying alerts via LLM, publish results."""
+    global _producer, _llm
 
     consumer = AIOKafkaConsumer(
         TOPIC_ML_ALERTS,
         bootstrap_servers=KAFKA_BOOTSTRAP,
-        group_id="llm_triage_service",
+        group_id="llm_triage_groq_v1",
         auto_offset_reset="latest",
     )
     await consumer.start()
@@ -73,9 +79,9 @@ async def ingest_alerts():
                 prompt = build_prompt(alert)
 
                 try:
-                    raw_output = await _ollama.generate(prompt)
+                    raw_output = await _llm.generate(prompt)
                 except Exception as exc:
-                    log.error("Ollama generation failed for alert %s: %s", alert_id, exc)
+                    log.error("LLM generation failed for alert %s: %s", alert_id, exc)
                     raw_output = ""
 
                 processing_time_ms = int((time.time() - start_ms) * 1000)
@@ -93,7 +99,7 @@ async def ingest_alerts():
                     "confidence": parsed["confidence"],
                     "severity": parsed["severity"],
                     "mitigation_steps": parsed["mitigation_steps"],
-                    "model_used": _ollama.model,
+                    "model_used": _llm.model,
                     "advisory_only": True,
                     "processing_time_ms": processing_time_ms,
                     "raw_llm_output": raw_output,
@@ -131,33 +137,42 @@ async def ingest_alerts():
 
 
 async def main():
-    global _producer, _ollama
+    global _producer, _llm
 
-    _ollama = OllamaClient()
+    _llm = GroqClient()
     _producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP)
     await _producer.start()
     log.info("Kafka producer ready -> publishing to %s", TOPIC_TRIAGE)
 
-    # Check Ollama availability at startup
-    available = await _ollama.is_available()
+    # Check Groq availability at startup
+    available = await _llm.is_available()
     if available:
-        log.info("Ollama is reachable (model: %s)", _ollama.model)
+        log.info("Groq API is configured (model: %s)", _llm.model)
     else:
-        log.warning("Ollama is NOT reachable — triage calls will fail until it is available")
+        log.warning("Groq API key is NOT found in environment!")
 
     print("=" * 65)
-    print("  ACDS LLM TRIAGE SERVICE")
+    print("  ACDS GROQ TRIAGE SERVICE")
     print(f"  Consuming:  {TOPIC_ML_ALERTS}")
     print(f"  Publishing: {TOPIC_TRIAGE}")
-    print(f"  Model:      {_ollama.model}")
+    print(f"  Model:      {_llm.model}")
     print(f"  Threshold:  ensemble_score >= {ENSEMBLE_THRESHOLD}")
+    print(f"  Auto-triage: {'ON' if AUTO_TRIAGE else 'OFF (use UI button per alert)'}")
     print("=" * 65)
 
     try:
-        await ingest_alerts()
+        if AUTO_TRIAGE:
+            await ingest_alerts()
+        else:
+            log.info(
+                "Auto-triage disabled. Triage runs on-demand via UI "
+                "(POST /api/triage/request/{alert_id})."
+            )
+            while True:
+                await asyncio.sleep(3600)
     finally:
         await _producer.stop()
-        await _ollama.close()
+        await _llm.close()
 
 
 def shutdown(sig, frame):

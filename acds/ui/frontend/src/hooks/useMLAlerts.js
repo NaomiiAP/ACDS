@@ -94,6 +94,27 @@ export function useMLAlerts(maxEvents = 500) {
         return () => clearInterval(interval);
     }, []);
 
+    // Fetch historical alerts via REST on mount (fallback if WebSocket missed them)
+    useEffect(() => {
+        const fetchAlerts = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/api/ml/alerts?limit=${maxEvents}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data) && data.length > 0) {
+                        setAlerts(prev => {
+                            if (prev.length > 0) return prev; // don't overwrite WS data
+                            return data;
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch ML alerts", err);
+            }
+        };
+        fetchAlerts();
+    }, [maxEvents]);
+
     const clearBuffer = useCallback(() => {
         setAlerts([]);
     }, []);

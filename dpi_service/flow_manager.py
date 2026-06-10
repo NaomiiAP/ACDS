@@ -1,5 +1,4 @@
 import time
-<<<<<<< HEAD
 from collections import OrderedDict
 
 FLOW_TIMEOUT = 10
@@ -16,22 +15,11 @@ def get_flow_key(packet):
     ((ip_lo, port_lo), (ip_hi, port_hi), proto)
     Bidirectional: A→B and B→A map to the SAME key.
     """
-=======
-
-flows = {}
-flow_last_seen = {}
-
-FLOW_TIMEOUT = 10
-
-def get_flow_key(packet):
-
->>>>>>> 249fcebef8fc6fb9b6ee6caf55a4990337cf304a
     if not packet.haslayer("IP"):
         return None
 
     src = packet["IP"].src
     dst = packet["IP"].dst
-<<<<<<< HEAD
     proto = packet["IP"].proto
 
     # Get ports (works for both TCP and UDP)
@@ -48,65 +36,33 @@ def get_flow_key(packet):
 
 
 def add_packet(packet):
-=======
-
-    sport = getattr(packet, "sport", 0)
-    dport = getattr(packet, "dport", 0)
-
-    proto = packet["IP"].proto
-
-    return (src, dst, sport, dport, proto)
-
-
-def add_packet(packet):
-
->>>>>>> 249fcebef8fc6fb9b6ee6caf55a4990337cf304a
     key = get_flow_key(packet)
     if key is None:
         return None
 
-<<<<<<< HEAD
     # LRU eviction if at capacity
     if key not in flows and len(flows) >= MAX_FLOWS:
         oldest_key = next(iter(flows))
         flows.pop(oldest_key, None)
         flow_last_seen.pop(oldest_key, None)
 
-=======
->>>>>>> 249fcebef8fc6fb9b6ee6caf55a4990337cf304a
     if key not in flows:
         flows[key] = []
 
     flows[key].append(packet)
-<<<<<<< HEAD
     flow_last_seen[key] = time.time()
 
     # Move to end (most recently used)
     flows.move_to_end(key)
     flow_last_seen.move_to_end(key)
-=======
-
-    flow_last_seen[key] = time.time()
->>>>>>> 249fcebef8fc6fb9b6ee6caf55a4990337cf304a
 
     return key
 
 
 def get_expired_flows():
-<<<<<<< HEAD
     now = time.time()
     expired = []
     for key, t in list(flow_last_seen.items()):
         if now - t > FLOW_TIMEOUT:
             expired.append(key)
-=======
-
-    now = time.time()
-    expired = []
-
-    for key, t in flow_last_seen.items():
-        if now - t > FLOW_TIMEOUT:
-            expired.append(key)
-
->>>>>>> 249fcebef8fc6fb9b6ee6caf55a4990337cf304a
     return expired

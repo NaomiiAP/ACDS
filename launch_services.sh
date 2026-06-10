@@ -17,6 +17,10 @@ echo "  ACDS Full Stack Launcher"
 echo "======================================"
 echo ""
 
+# Check for sudo at the beginning so background tasks don't hang/fail
+echo "✓ Authenticating sudo for required services..."
+sudo -v
+
 # Check if Docker containers are running
 echo "✓ Checking Docker services..."
 if ! docker exec telemetry-kafka-1 echo "ok" &>/dev/null; then
@@ -69,12 +73,8 @@ echo "[4/9] ML Detection Service..."
 echo "  ↳ PID: $!"
 ((SERVICES_STARTED++))
 
-# =========== LLM Triage Service ===========
-echo "[5/9] LLM Triage Service..."
-(cd "${PROJECT_DIR}/acds/llm_service" && \
- python3 llm_main.py > "${LOGS_DIR}/llm_service.log" 2>&1) &
-echo "  ↳ PID: $!"
-((SERVICES_STARTED++))
+# =========== LLM Triage Service (skipped — on-demand via UI button) ===========
+echo "[5/9] LLM Triage Service (skipped — use UI 'Run AI Triage' per alert)..."
 
 # =========== Graph Service ===========
 echo "[6/9] Graph Service..."

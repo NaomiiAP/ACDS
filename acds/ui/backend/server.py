@@ -9,6 +9,23 @@ from contextlib import asynccontextmanager
 from aiokafka import AIOKafkaConsumer
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+import uuid
+import logging
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Ensure project root is in PYTHONPATH
+root_path = Path(__file__).resolve().parent.parent.parent.parent
+if str(root_path) not in sys.path:
+    sys.path.append(str(root_path))
+
+# Load .env at startup
+load_dotenv()
+
+from acds.llm_service.groq_client import GroqClient
+from acds.llm_service.prompt_templates import build_prompt
+from acds.llm_service.triage_formatter import parse_llm_output
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TelemetryServer")
@@ -41,6 +58,10 @@ status = {
     "total_ml_alerts":          0,
     "total_triage":             0,
 }
+
+# AI Engine (On-Demand — one Groq request at a time to avoid rate limits)
+llm_client = GroqClient()
+_triage_lock = asyncio.Lock()
 
 
 # ── Kafka consumers ────────────────────────────────────────────────────────────
@@ -357,6 +378,59 @@ async def get_triage_by_alert(alert_id: str):
         if t.get("alert_id") == alert_id:
             return t
     return {"error": "not found"}
+
+@app.post("/api/triage/request/{alert_id}")
+async def request_triage(alert_id: str):
+    """Manually trigger AI triage for a single alert (on-demand only)."""
+    logger.info(f"Manual triage requested for alert: {alert_id}")
+
+    for t in triage_buffer:
+        if t.get("alert_id") == alert_id:
+            return t
+
+    target_alert = None
+    for a in list(ml_alert_buffer):
+        if a.get("alert_id") == alert_id:
+            target_alert = a
+            break
+
+    if not target_alert:
+        return {"error": "Alert not found in history"}
+
+    async with _triage_lock:
+        for t in triage_buffer:
+            if t.get("alert_id") == alert_id:
+                return t
+
+        try:
+            prompt = build_prompt(target_alert)
+            raw_output = await llm_client.generate(prompt)
+            if raw_output.startswith("Error:"):
+                return {"error": raw_output}
+
+            parsed = parse_llm_output(raw_output)
+
+            triage_result = {
+                "triage_id": str(uuid.uuid4()),
+                "alert_id": alert_id,
+                "timestamp": time.time(),
+                "explanation": parsed["explanation"],
+                "attack_stage": parsed["attack_stage"],
+                "confidence": parsed["confidence"],
+                "severity": parsed["severity"],
+                "mitigation_steps": parsed["mitigation_steps"],
+                "model_used": llm_client.model,
+                "advisory_only": True,
+                "alert_context": target_alert,
+            }
+
+            triage_buffer.append(triage_result)
+            status["total_triage"] += 1
+            return triage_result
+
+        except Exception as e:
+            logger.error(f"Groq Triage Error: {e}")
+            return {"error": str(e)}
 
 
 # ── WebSocket Routes ───────────────────────────────────────────────────────────
