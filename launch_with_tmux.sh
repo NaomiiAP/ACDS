@@ -10,6 +10,9 @@ PROJECT_DIR="${SCRIPT_DIR}"
 SESSION_NAME="acds"
 LOGS_DIR="${PROJECT_DIR}/.service_logs"
 
+# shellcheck disable=SC1091
+source "${PROJECT_DIR}/scripts/venv.sh"
+
 mkdir -p "${LOGS_DIR}"
 
 echo "======================================"
@@ -30,43 +33,43 @@ echo ""
 # Window 1: Telemetry Agent
 echo "[1/9] Creating window: Telemetry Agent (sudo required)"
 tmux new-window -t "$SESSION_NAME" -n "telemetry"
-tmux send-keys -t "$SESSION_NAME:telemetry" "cd $PROJECT_DIR/acds/telemetry/agent && echo 'Starting Telemetry Agent (sudo)...' && sudo python3 agent.py" Enter
+tmux send-keys -t "$SESSION_NAME:telemetry" "cd $PROJECT_DIR/acds/telemetry/agent && echo 'Starting Telemetry Agent (sudo)...' && sudo env PYTHONPATH=$PROJECT_DIR $ACDS_VENV_PY agent.py" Enter
 sleep 2
 
 # Window 2: DPI Service
 echo "[2/9] Creating window: DPI Service (sudo required)"
 tmux new-window -t "$SESSION_NAME" -n "dpi"
-tmux send-keys -t "$SESSION_NAME:dpi" "cd $PROJECT_DIR && echo 'Starting DPI Service (sudo)...' && sudo python3 dpi_service/dpi_main.py" Enter
+tmux send-keys -t "$SESSION_NAME:dpi" "cd $PROJECT_DIR && echo 'Starting DPI Service (sudo)...' && sudo env PYTHONPATH=$PROJECT_DIR $ACDS_VENV_PY dpi_service/dpi_main.py" Enter
 sleep 2
 
 # Window 3: Correlation Service
 echo "[3/9] Creating window: Correlation Service"
 tmux new-window -t "$SESSION_NAME" -n "correlation"
-tmux send-keys -t "$SESSION_NAME:correlation" "cd $PROJECT_DIR/acds/correlation_service && python3 correlation_main.py" Enter
+tmux send-keys -t "$SESSION_NAME:correlation" "cd $PROJECT_DIR && $ACDS_VENV_PY acds/correlation_service/correlation_main.py" Enter
 sleep 1
 
 # Window 4: ML Detection
 echo "[4/9] Creating window: ML Detection"
 tmux new-window -t "$SESSION_NAME" -n "ml"
-tmux send-keys -t "$SESSION_NAME:ml" "cd $PROJECT_DIR/acds/ml_service && python3 ml_main.py" Enter
+tmux send-keys -t "$SESSION_NAME:ml" "cd $PROJECT_DIR && $ACDS_VENV_PY acds/ml_service/ml_main.py" Enter
 sleep 1
 
 # Window 5: LLM Triage
 echo "[5/9] Creating window: LLM Triage"
 tmux new-window -t "$SESSION_NAME" -n "llm"
-tmux send-keys -t "$SESSION_NAME:llm" "cd $PROJECT_DIR/acds/llm_service && python3 llm_main.py" Enter
+tmux send-keys -t "$SESSION_NAME:llm" "cd $PROJECT_DIR && $ACDS_VENV_PY acds/llm_service/llm_main.py" Enter
 sleep 1
 
 # Window 6: Graph Service
 echo "[6/9] Creating window: Graph Service"
 tmux new-window -t "$SESSION_NAME" -n "graph"
-tmux send-keys -t "$SESSION_NAME:graph" "cd $PROJECT_DIR/acds/graph_service && python3 graph_main.py" Enter
+tmux send-keys -t "$SESSION_NAME:graph" "cd $PROJECT_DIR && $ACDS_VENV_PY acds/graph_service/graph_main.py" Enter
 sleep 1
 
 # Window 7: Backend API
 echo "[7/9] Creating window: Backend API (FastAPI)"
 tmux new-window -t "$SESSION_NAME" -n "backend"
-tmux send-keys -t "$SESSION_NAME:backend" "cd $PROJECT_DIR/acds/ui/backend && python3 -m uvicorn server:app --host 0.0.0.0 --port 8000" Enter
+tmux send-keys -t "$SESSION_NAME:backend" "cd $PROJECT_DIR/acds/ui/backend && $ACDS_VENV_PY -m uvicorn server:app --host 0.0.0.0 --port 8000" Enter
 sleep 1
 
 # Window 8: Frontend

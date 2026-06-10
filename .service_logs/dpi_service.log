@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/mnt/d/Desktop/Andrea/ACDS/dpi_service/dpi_main.py", line 4, in <module>
+    from packet_capture import start_capture
+  File "/mnt/d/Desktop/Andrea/ACDS/dpi_service/packet_capture.py", line 1, in <module>
+    from scapy.all import sniff, conf
+ModuleNotFoundError: No module named 'scapy'

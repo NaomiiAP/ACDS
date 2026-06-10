@@ -25,7 +25,8 @@ echo "[1/6] Installing system packages..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq \
     python3 python3-pip python3-venv \
-    curl iputils-ping dnsutils git
+    curl iputils-ping dnsutils git \
+    libpcap-dev
 
 echo ""
 

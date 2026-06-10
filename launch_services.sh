@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
-# ACDS Full Stack Launcher (Simplified - runs in current terminal with background processes)
+# ACDS Full Stack Launcher (background mode — logs go to .service_logs/)
+# For live logs in separate terminal tabs, use instead:
+#   bash scripts/open_terminals.sh
+#
 # Run from WSL: bash launch_services.sh
 
 set -e
@@ -9,8 +12,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}"
 LOGS_DIR="${PROJECT_DIR}/.service_logs"
 
+# shellcheck disable=SC1091
+source "${PROJECT_DIR}/scripts/venv.sh"
+TELEMETRY_PYTHONPATH="$(acds_telemetry_pythonpath)"
+
 # Create logs directory
 mkdir -p "${LOGS_DIR}"
+
+if ! python3 -c "import bcc" 2>/dev/null; then
+    echo "WARNING: python3-bpfcc not installed — Telemetry Agent will not capture events."
+    echo "  Fix: bash scripts/ensure_system_deps.sh"
+    echo ""
+fi
 
 echo "======================================"
 echo "  ACDS Full Stack Launcher"
@@ -41,9 +54,9 @@ echo "[1/9] Telemetry Agent (requires sudo)..."
 if command -v sudo &> /dev/null; then
     # Try to run with sudo; if password needed it will prompt
     (cd "${PROJECT_DIR}/acds/telemetry/agent" && \
-     sudo python3 agent.py > "${LOGS_DIR}/telemetry_agent.log" 2>&1) &
+     sudo env PYTHONPATH="${TELEMETRY_PYTHONPATH}" "${ACDS_TELEMETRY_PY}" agent.py > "${LOGS_DIR}/telemetry_agent.log" 2>&1) &
     echo "  ↳ PID: $!"
-    ((SERVICES_STARTED++))
+    SERVICES_STARTED=$((SERVICES_STARTED + 1))
 else
     echo "  ⚠️  Skipped (sudo not available)"
 fi
@@ -52,63 +65,75 @@ fi
 echo "[2/9] DPI Service (requires sudo)..."
 if command -v sudo &> /dev/null; then
     (cd "${PROJECT_DIR}" && \
-     sudo python3 dpi_service/dpi_main.py > "${LOGS_DIR}/dpi_service.log" 2>&1) &
+     sudo env PYTHONPATH="${PROJECT_DIR}" "${ACDS_VENV_PY}" dpi_service/dpi_main.py > "${LOGS_DIR}/dpi_service.log" 2>&1) &
     echo "  ↳ PID: $!"
-    ((SERVICES_STARTED++))
+    SERVICES_STARTED=$((SERVICES_STARTED + 1))
 else
     echo "  ⚠️  Skipped (sudo not available)"
 fi
 
 # =========== Correlation Service ===========
 echo "[3/9] Correlation Service..."
-(cd "${PROJECT_DIR}/acds/correlation_service" && \
- python3 correlation_main.py > "${LOGS_DIR}/correlation_service.log" 2>&1) &
+(cd "${PROJECT_DIR}" && \
+ "${ACDS_VENV_PY}" acds/correlation_service/correlation_main.py > "${LOGS_DIR}/correlation_service.log" 2>&1) &
 echo "  ↳ PID: $!"
-((SERVICES_STARTED++))
+SERVICES_STARTED=$((SERVICES_STARTED + 1))
 
 # =========== ML Detection Service ===========
 echo "[4/9] ML Detection Service..."
-(cd "${PROJECT_DIR}/acds/ml_service" && \
- python3 ml_main.py > "${LOGS_DIR}/ml_service.log" 2>&1) &
+(cd "${PROJECT_DIR}" && \
+ "${ACDS_VENV_PY}" acds/ml_service/ml_main.py > "${LOGS_DIR}/ml_service.log" 2>&1) &
 echo "  ↳ PID: $!"
-((SERVICES_STARTED++))
+SERVICES_STARTED=$((SERVICES_STARTED + 1))
 
 # =========== LLM Triage Service (skipped — on-demand via UI button) ===========
 echo "[5/9] LLM Triage Service (skipped — use UI 'Run AI Triage' per alert)..."
 
 # =========== Graph Service ===========
 echo "[6/9] Graph Service..."
-(cd "${PROJECT_DIR}/acds/graph_service" && \
- python3 graph_main.py > "${LOGS_DIR}/graph_service.log" 2>&1) &
+(cd "${PROJECT_DIR}" && \
+ "${ACDS_VENV_PY}" acds/graph_service/graph_main.py > "${LOGS_DIR}/graph_service.log" 2>&1) &
 echo "  ↳ PID: $!"
-((SERVICES_STARTED++))
+SERVICES_STARTED=$((SERVICES_STARTED + 1))
 
 # =========== Backend API ===========
 echo "[7/9] Backend API (FastAPI)..."
 (cd "${PROJECT_DIR}/acds/ui/backend" && \
- python3 -m uvicorn server:app --host 0.0.0.0 --port 8000 > "${LOGS_DIR}/backend_api.log" 2>&1) &
+ "${ACDS_VENV_PY}" -m uvicorn server:app --host 0.0.0.0 --port 8000 > "${LOGS_DIR}/backend_api.log" 2>&1) &
 echo "  ↳ PID: $! - Running on http://localhost:8000"
-((SERVICES_STARTED++))
+SERVICES_STARTED=$((SERVICES_STARTED + 1))
 
 # =========== React Frontend ===========
 echo "[8/9] React Frontend (Vite)..."
 (cd "${PROJECT_DIR}/acds/ui/frontend" && \
  npm run dev -- --host 0.0.0.0 --port 5173 > "${LOGS_DIR}/frontend.log" 2>&1) &
 echo "  ↳ PID: $! - Running on http://localhost:5173"
-((SERVICES_STARTED++))
+SERVICES_STARTED=$((SERVICES_STARTED + 1))
 
 # =========== Kafka Monitor ===========
 echo "[9/9] Kafka Monitor (monitoring ml.alerts topic)..."
 (cd "${PROJECT_DIR}" && \
- docker exec -it telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic ml.alerts 2>/dev/null || \
- docker exec -it telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic enriched.flows \
+ docker exec telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic ml.alerts 2>/dev/null || \
+ docker exec telemetry-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic enriched.flows \
  > "${LOGS_DIR}/kafka_monitor.log" 2>&1) &
 echo "  ↳ PID: $!"
-((SERVICES_STARTED++))
+SERVICES_STARTED=$((SERVICES_STARTED + 1))
+
+# =========== Traffic Generator ===========
+echo "[10/10] Traffic Generator (curl/ping for telemetry)..."
+(cd "${PROJECT_DIR}" && \
+ bash scripts/generate_traffic.sh > "${LOGS_DIR}/traffic_generator.log" 2>&1) &
+echo "  ↳ PID: $!"
+
+# =========== Demo Alert Injector (attack graph) ===========
+echo "[+] Demo alerts (attack graph) — injecting after graph service is ready..."
+(cd "${PROJECT_DIR}" && \
+ bash scripts/inject_demo_after_startup.sh > "${LOGS_DIR}/demo_inject.log" 2>&1) &
+echo "  ↳ PID: $! (see ${LOGS_DIR}/demo_inject.log)"
 
 echo ""
 echo "======================================"
-echo "✅ Launched $SERVICES_STARTED services!"
+echo "✅ Launched $SERVICES_STARTED services (+ traffic generator)!"
 echo "======================================"
 echo ""
 echo "📊 Service Status:"

@@ -2,11 +2,12 @@ import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { TelemetryContext } from '../context/TelemetryContext';
 import { SettingsContext } from '../context/SettingsContext';
 import { Wifi, WifiOff, Download, Trash2, CheckCircle, AlertCircle, RefreshCw, Database, Zap, ToggleLeft, ToggleRight } from 'lucide-react';
+import { API_BASE, wsUrl } from '../config/api';
 
 const CARD_BG = '#111620';
 const CARD_BORDER = 'rgba(255,255,255,0.07)';
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/telemetry';
+
+const WS_URL = wsUrl('/ws/telemetry');
 
 function SectionTitle({ children }) {
     return <h3 className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-4">{children}</h3>;

@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, useContext } from 'react';
 import { GitBranch, Network, AlertTriangle, ChevronRight, ChevronDown, Circle, Minus, RefreshCw } from 'lucide-react';
-
-const GRAPH_API = 'http://localhost:8100/api/graph';
+import { GRAPH_API } from '../config/api';
+import { DEMO_GRAPH, DEMO_PATHS, DEMO_SUMMARY } from '../data/demoAttackGraph';
+import { SettingsContext } from '../context/SettingsContext';
 const CARD_BG = '#0c1018';
 const CARD_BORDER = 'rgba(255,255,255,0.06)';
 
@@ -29,6 +30,23 @@ function riskLevel(score) {
     if (score >= 0.7) return 'high';
     if (score >= 0.4) return 'medium';
     return 'low';
+}
+
+function pathRiskLevel(totalScore) {
+    if (totalScore >= 2.0) return 'high';
+    if (totalScore >= 1.2) return 'medium';
+    return 'low';
+}
+
+function pathDescription(p) {
+    if (p.description) return p.description;
+    const nodes = p.nodes || p.path || [];
+    const names = nodes.map(n => (typeof n === 'string' ? n : n.name || n.id || '?'));
+    const label = p.edges?.[0]?.predicted_label;
+    const chain = names.join(' → ');
+    return label
+        ? `${label} attack path: ${chain}`
+        : `Suspected attack chain: ${chain}`;
 }
 
 function RiskBadge({ level }) {
@@ -345,9 +363,10 @@ function PathsTable({ paths }) {
                 </thead>
                 <tbody>
                     {paths.map((p, i) => {
-                        const risk = riskLevel(p.total_risk_score || p.risk_score || 0);
+                        const risk = pathRiskLevel(p.total_risk_score || p.risk_score || 0);
                         const isExpanded = expanded === i;
                         const pathNodes = p.nodes || p.path || [];
+                        const desc = pathDescription(p);
                         return (
                             <React.Fragment key={i}>
                                 <tr className="border-t cursor-pointer hover:bg-white/[0.025] transition-colors"
@@ -428,12 +447,22 @@ function PathsTable({ paths }) {
 }
 
 export default function AttackGraph() {
+    const { demoMode } = useContext(SettingsContext);
     const [view, setView] = useState('graph');
     const [summary, setSummary] = useState({ total_nodes: 0, total_edges: 0, high_risk_nodes: 0, attack_paths_found: 0 });
     const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
     const [paths, setPaths] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [usingDemo, setUsingDemo] = useState(false);
+
+    const applyDemoData = useCallback(() => {
+        setGraphData(DEMO_GRAPH);
+        setPaths(DEMO_PATHS);
+        setSummary(DEMO_SUMMARY);
+        setUsingDemo(true);
+        setError(null);
+    }, []);
 
     const fetchAll = useCallback(async () => {
         setLoading(true);
@@ -445,29 +474,56 @@ export default function AttackGraph() {
                 fetch(`${GRAPH_API}/paths`),
             ]);
 
+            let nextGraph = { nodes: [], edges: [] };
+            let nextPaths = [];
+            let nextSummary = { total_nodes: 0, total_edges: 0, suspicious_edges: 0, top_risky: [] };
+            let liveData = false;
+
             if (summaryRes.status === 'fulfilled' && summaryRes.value.ok) {
                 const s = await summaryRes.value.json();
                 const nc = s.node_counts || {};
                 const ec = s.edge_counts || {};
-                setSummary({
-                    total_nodes: Object.values(nc).reduce((a,b)=>a+b, 0),
-                    total_edges: Object.values(ec).reduce((a,b)=>a+b, 0),
-                    suspicious_edges: ec['SUSPICIOUS_CONNECTION'] || 0,
+                nextSummary = {
+                    total_nodes: Object.values(nc).reduce((a, b) => a + b, 0),
+                    total_edges: Object.values(ec).reduce((a, b) => a + b, 0),
+                    suspicious_edges: ec.SUSPICIOUS_CONNECTION || 0,
                     top_risky: s.top_risky_entities || [],
-                });
+                };
+                liveData = nextSummary.total_nodes > 0;
             }
             if (graphRes.status === 'fulfilled' && graphRes.value.ok) {
-                setGraphData(await graphRes.value.json());
+                nextGraph = await graphRes.value.json();
+                if (nextGraph.nodes?.length) liveData = true;
             }
             if (pathsRes.status === 'fulfilled' && pathsRes.value.ok) {
-                setPaths(await pathsRes.value.json());
+                const body = await pathsRes.value.json();
+                nextPaths = Array.isArray(body) ? body : body.paths || [];
             }
+
+            const graphEmpty = !nextGraph.nodes?.length;
+            const pathsEmpty = !nextPaths.length;
+
+            if (graphEmpty || (demoMode && pathsEmpty)) {
+                applyDemoData();
+                if (!graphEmpty) {
+                    setGraphData(nextGraph);
+                    setSummary(nextSummary);
+                    setUsingDemo(pathsEmpty);
+                }
+                return;
+            }
+
+            setUsingDemo(false);
+            setSummary(nextSummary);
+            setGraphData(nextGraph);
+            setPaths(pathsEmpty ? DEMO_PATHS : nextPaths);
         } catch (err) {
-            setError(err.message);
+            applyDemoData();
+            setError(`Graph service unreachable (${err.message}). Showing demo data.`);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [applyDemoData, demoMode]);
 
     useEffect(() => {
         fetchAll();
@@ -546,7 +602,18 @@ export default function AttackGraph() {
                 ))}
             </div>
 
-            {error && (
+            {usingDemo && (
+                <div className="rounded-xl p-3 text-sm border flex items-center justify-between gap-3"
+                    style={{ background: 'rgba(16,185,129,0.06)', borderColor: 'rgba(16,185,129,0.25)', color: '#6ee7b7' }}>
+                    <span>
+                        Showing demo attack graph — run{' '}
+                        <code className="text-emerald-300">python3 scripts/inject_demo_alerts.py</code>{' '}
+                        after the graph service starts for live Kafka-fed data.
+                    </span>
+                </div>
+            )}
+
+            {error && !usingDemo && (
                 <div className="rounded-xl p-3 text-sm border"
                     style={{ background: 'rgba(239,68,68,0.06)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
                     Failed to connect to graph service: {error}. Ensure the Attack Graph service is running on port 8100.

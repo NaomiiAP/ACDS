@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AlertTriangle, ShieldAlert, Shield, Activity, X, ChevronRight } from 'lucide-react';
+import { API_BASE, wsUrl } from '../config/api';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/telemetry';
-const THREAT_WS = WS_URL.replace('/ws/telemetry', '/ws/threats');
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const THREAT_WS = wsUrl('/ws/threats');
 
 const CARD_BG = '#111620';
 const CARD_BORDER = 'rgba(255,255,255,0.07)';

@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/mnt/d/Desktop/Andrea/ACDS/acds/correlation_service/correlation_main.py", line 19, in <module>
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+ModuleNotFoundError: No module named 'aiokafka'

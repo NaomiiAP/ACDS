@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { API_BASE, wsUrl } from '../config/api';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
-
-const WEBSOCKET_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/telemetry';
+const WEBSOCKET_URL = wsUrl('/ws/telemetry');
 
 export function useTelemetry(maxEvents = 10000) {
     const [connected, setConnected] = useState(false);
@@ -19,13 +18,31 @@ export function useTelemetry(maxEvents = 10000) {
     const [statsHistory, setStatsHistory] = useState([]);
 
     const wsRef = useRef(null);
-
-    // Use a ref for the isPaused state to avoid reconnecting the websocket on UI toggle
     const isPausedRef = useRef(isPaused);
 
     useEffect(() => {
         isPausedRef.current = isPaused;
     }, [isPaused]);
+
+    // REST fallback — load buffered events even if WebSocket is slow to connect
+    useEffect(() => {
+        const fetchEvents = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/api/events?limit=${maxEvents}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data) && data.length > 0) {
+                        setEvents(prev => (prev.length > 0 ? prev : data));
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to fetch telemetry events', err);
+            }
+        };
+        fetchEvents();
+        const interval = setInterval(fetchEvents, 5000);
+        return () => clearInterval(interval);
+    }, [maxEvents]);
 
     useEffect(() => {
         let reconnectTimeout;
@@ -35,7 +52,7 @@ export function useTelemetry(maxEvents = 10000) {
 
             ws.onopen = () => {
                 setConnected(true);
-                console.log("Telemetry WebSocket connected");
+                console.log('Telemetry WebSocket connected');
             };
 
             ws.onmessage = (e) => {
@@ -46,23 +63,23 @@ export function useTelemetry(maxEvents = 10000) {
                     if (msg.type === 'event') {
                         setEvents(prev => {
                             const copy = [...prev, msg.data];
-                            return copy.slice(-maxEvents); // keep bounded
+                            return copy.slice(-maxEvents);
                         });
                     }
                 } catch (err) {
-                    console.error("Failed parsing WS message", err);
+                    console.error('Failed parsing WS message', err);
                 }
             };
 
             ws.onclose = () => {
                 setConnected(false);
                 wsRef.current = null;
-                console.log("Telemetry WebSocket closed. Reconnecting in 3s...");
+                console.log('Telemetry WebSocket closed. Reconnecting in 3s...');
                 reconnectTimeout = setTimeout(connect, 3000);
             };
 
             ws.onerror = (err) => {
-                console.error("Telemetry WebSocket error", err);
+                console.error('Telemetry WebSocket error', err);
                 ws.close();
             };
 
@@ -79,7 +96,6 @@ export function useTelemetry(maxEvents = 10000) {
         };
     }, [maxEvents]);
 
-    // Fetch Stats Globally
     useEffect(() => {
         const fetchStats = async () => {
             try {
@@ -90,11 +106,11 @@ export function useTelemetry(maxEvents = 10000) {
 
                     setStatsHistory(prev => {
                         const copy = [...prev, { time: new Date().toLocaleTimeString(), eps: data.events_per_sec }];
-                        return copy.slice(-1800); // Keep up to 1800 points (~1 hour at 2s intervals) for "All" view
+                        return copy.slice(-1800);
                     });
                 }
             } catch (err) {
-                console.error("Failed to fetch global stats", err);
+                console.error('Failed to fetch global stats', err);
             }
         };
 

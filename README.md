@@ -170,9 +170,12 @@ sudo apt install -y python3 python3-pip python3-venv \
 
 # eBPF / BCC tooling (required for the Telemetry Agent)
 sudo apt install -y bpfcc-tools python3-bpfcc linux-headers-$(uname -r)
+
+# Packet capture (required for the DPI Service / Scapy)
+sudo apt install -y libpcap-dev
 ```
 
-> **Note:** `bpfcc-tools` and `python3-bpfcc` are installed via `apt`, **not** `pip`. The `requirements.txt` for the telemetry agent lists `bcc` as a reminder only; the apt packages take precedence.
+> **Note:** `bpfcc-tools`, `python3-bpfcc`, and `libpcap-dev` are installed via `apt`, **not** `pip`.
 
 ---
 

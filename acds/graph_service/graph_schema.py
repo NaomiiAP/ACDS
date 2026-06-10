@@ -154,6 +154,15 @@ def create_container_process_edge(container_id: str, pid: int, host_id: str) -> 
     return query, {"container_id": container_id, "pid": pid, "host_id": host_id}
 
 
+def create_host_process_edge(host_id: str, pid: int) -> tuple[str, dict]:
+    """Link host to process when no container is present (demo alerts)."""
+    query = (
+        "MATCH (h:Host {id: $host_id}), (p:Process {pid: $pid, host_id: $host_id}) "
+        "MERGE (h)-[:RUNS]->(p)"
+    )
+    return query, {"host_id": host_id, "pid": pid}
+
+
 # ── Composite builder ───────────────────────────────────────────────
 
 
@@ -204,6 +213,8 @@ def build_graph_from_alert(alert: dict) -> list[tuple[str, dict]]:
         ops.append(merge_process(pid, process_name, container_id, host_id, ensemble_score, ts))
         if container_id:
             ops.append(create_container_process_edge(container_id, pid, host_id))
+        else:
+            ops.append(create_host_process_edge(host_id, pid))
 
     # 4. MERGE destination IP
     if dst_ip:

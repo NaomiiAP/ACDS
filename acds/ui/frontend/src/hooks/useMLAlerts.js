@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { API_BASE, wsUrl } from '../config/api';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/telemetry';
-const ML_WS = WS_URL.replace('/ws/telemetry', '/ws/ml-alerts');
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const ML_WS = wsUrl('/ws/ml-alerts');
 
 export function useMLAlerts(maxEvents = 500) {
     const [connected, setConnected] = useState(false);

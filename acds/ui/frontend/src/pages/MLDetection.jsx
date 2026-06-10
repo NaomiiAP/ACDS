@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Brain, AlertTriangle, ShieldAlert, Activity, X, ChevronRight, BarChart3, Loader2, Info, TrendingUp, BrainCircuit } from 'lucide-react';
 import { useMLAlerts } from '../hooks/useMLAlerts';
+import { API_BASE } from '../config/api';
 
 const CARD_BG = '#111620';
 const CARD_BORDER = 'rgba(255,255,255,0.07)';
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
 const RISK = {
     critical: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)', border: 'rgba(220,38,38,0.3)', label: 'CRITICAL' },
